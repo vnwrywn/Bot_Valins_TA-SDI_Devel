@@ -1,0 +1,4 @@
+pyTelegramBotAPI==4.12.0
+mysqlclient==2.1.1
+Telethon==1.28.5
+websockets==9.1
