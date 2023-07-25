@@ -86,7 +86,7 @@ def main():
     peroleh_lokasi_handler = ConversationHandler(
         entry_points=[CallbackQueryHandler(peroleh_lokasi, pattern='^opsi_peroleh_lokasi$')],
         states={
-            1: [MessageHandler(filters.TEXT & (~ filters.COMMAND), proses_peroleh_lokasi)]
+            1: [CallbackQueryHandler(proses_peroleh_lokasi_button, pattern='^item_'), MessageHandler(filters.TEXT & (~ filters.COMMAND), proses_peroleh_lokasi_text)]
         },
         fallbacks=[CommandHandler('batal', batal)]
     )
@@ -536,14 +536,31 @@ async def proses_hapus_user(update: Update, context: ContextTypes.DEFAULT_TYPE, 
 @check_conv_status
 async def peroleh_lokasi(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
     query = update.callback_query
-    context.chat_data['in_conversation'] = True
     await context.bot.edit_message_reply_markup(chat_id=query.message.chat_id, message_id=query.message.message_id, reply_markup=None)
-    await context.bot.send_message(chat_id=query.message.chat_id, text='Masukkan nama item.')
+    context.chat_data['in_conversation'] = True
+    site_list = get_sites(query.data)
+    keyboard = []
+
+    for i in range(ceil(len(site_list)/3)):
+        temp_item = site_list[i * 3]['site_id']
+        keyboard.append([InlineKeyboardButton(temp_item, callback_data='item_' + temp_item)])
+
+        for j in range(1, 3):
+            try:
+                temp_item = item_list[i * 3 + j]['site_id']
+                keyboard[-1].append(InlineKeyboardButton(temp_item, callback_data='item_' + temp_item))
+            except:
+                break
+
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    message = await context.bot.send_message(chat_id=query.message.chat_id, text='Silahkan masukkan nama item atau pilih item dari tombol di bawah ini.', reply_markup=reply_markup)
+    context.user_data['last_message_id'] = message.message_id
     return 1
 
 # Fungsi untuk memproses peroleh lokasi
 @authenticate_user
-async def proses_peroleh_lokasi(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
+async def proses_peroleh_lokasi_text(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
+    await context.bot.edit_message_reply_markup(chat_id=update.effective_chat.id, message_id=context.user_data.get('last_message_id'), reply_markup=None)
     text = update.message.text
     if len(text) == 8 and text.isalnum():
 
@@ -551,19 +568,28 @@ async def proses_peroleh_lokasi(update: Update, context: ContextTypes.DEFAULT_TY
         site = get_sites(text.upper())
 
         if site:
-            latitude, longitude = parse_coordinates(site['koordinat'])
-            await update.message.reply_text(f"Site_ID_Tenant: {site['site_id']}\n"
-                                            f"Tenant: {site['tenant']}\n"
-                                            f"Alamat: {site['alamat']}\n"
-                                            f"Koordinat Site: {latitude},{longitude}")
-            await update.message.reply_location(latitude, longitude)
-            context.chat_data['in_conversation'] = False
-            return ConversationHandler.END
+            await kirim_data_item(update, context, [False, False], site)
 
-        await update.message.reply_text('Nama tidak ditemukan. Silahkan masukkan kembali nama item atau keluar dari proses dengan menggunakan fungsi /batal.')
+        await update.message.reply_text('Site tidak ditemukan. Silahkan masukkan atau pilih kembali nama site atau keluar dari proses dengan menggunakan fungsi /batal.')
         return 1
 
-    await update.message.reply_text('Format penamaan salah. Silahkan masukkan kembali nama item atau keluar dari proses dengan menggunakan fungsi /batal.')
+    await update.message.reply_text('Format penamaan salah. Silahkan masukkan atau pilih kembali nama site atau keluar dari proses dengan menggunakan fungsi /batal.')
+    return 1
+
+@authenticate_user
+async def proses_peroleh_lokasi_button(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
+    query = update.callback_query
+    await context.bot.edit_message_reply_markup(chat_id=query.message.chat_id, message_id=query.message.message_id, reply_markup=None)
+
+    # Cek apakah site dengan Site_ID_Tenant tertentu ada di database
+    site = get_sites(query.data)
+
+    if site:
+        await kirim_data_item(update, context, [False, False], site)
+        await context.bot.edit_message_reply_markup(chat_id=query.message.chat_id, message_id=query.message.message_id, reply_markup=None)
+        return ConversationHandler.END
+
+    await update.message.reply_text('Site tidak ditemukan. Silahkan masukkan atau pilih kembali nama site atau keluar dari proses dengan menggunakan fungsi /batal.')
     return 1
 
 # # Fungsi untuk mendapatkan site berdasarkan Site_ID_Tenant
@@ -596,24 +622,22 @@ def parse_coordinates(coordinates):
     return latitude, longitude
 
 
-#+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 @authenticate_user
 @check_conv_status
 async def peroleh_lokasi_func(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
     args = context.args
-        await update.message.reply_text('Mohon akhiri percakapan terlebih dahulu dengan menjalankan fungsi /batal.')
-    elif args:
+    if args:
         argument = args[0]
         if len(argument) == 8 and argument.isalnum():
 
-            if argument.upper() == '20BAT001':
-                latitude = -7.88267
-                longitude = 112.527
-                await update.message.reply_text('Site_ID_Tenant: 20BAT001\nTenant: INDOSAT\nAlamat: Jl. Dewi Sartika Atas 110-104, Temas, Kec. Batu, Kota Batu, Jawa Timur 65315\nKoordinat Site: -7.88267,112.527')
-                await update.message.reply_location(latitude, longitude)
+            # Cek apakah site dengan Site_ID_Tenant tertentu ada di database
+            site = get_sites(text.upper())
+
+            if site:
+                await kirim_data_item(update, context, [False, False], site)
 
             else:
-                await update.message.reply_text('Nama tidak ditemukan.')
+                await update.message.reply_text('Site tidak ditemukan.')
 
         else:
             await update.message.reply_text('Format penamaan salah.')
@@ -710,7 +734,9 @@ Menu Utama: Berisi berbagai pilihan untuk membuka submenu.
 Input Data: Menjalankan proses untuk memasukkan data ke dalam basis data.
 Peroleh Lokasi Item: Menjalankan proses untuk memperoleh lokasi item berdasarkan nama item.
 Peroleh Nama Item: Menjalankan proses untuk memperoleh nama-nama item berdasarkan lokasi.
-Peroleh File Set: Menjalankan proses untuk memperoleh berkas-berkas berdasarkan nama.''')
+Peroleh File Set: Menjalankan proses untuk memperoleh berkas-berkas berdasarkan nama.
+
+Apabila memerlukan bantuan tambahan, anda dapat menghubungi helpdesk pada...''')
 
 async def get_token(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
     await update.message.reply_text(f"Mohon kirimkan nama lengkap anda.")
@@ -731,6 +757,17 @@ async def get_token_process(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     await update.message.reply_text(f'Token anda adalah: {token}')
     context.chat_data['in_conversation'] = False
     return ConversationHandler.END
+
+@authenticate_user
+async def kirim_data_item(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status, data):
+    koordinat = data['koordinat'].split(',')
+    text = 'Site\_ID\_Tenant: {}\n'.format(data['site_id'])
+    text += 'Tenant: {}\n'.format(data['tenant'])
+    text += 'Alamat: {}\n'.format(data['alamat'])
+    text += 'Koordinat Site: [{0},{1}](http://maps.google.com/maps?q={0},{1})\n'.format(koordinat[0], koordinat[1])
+    await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
+    await update.message.reply_location(koordinat[0], koordinat[1])
+
 # # Function that creates a message containing a list of all the oders
 # def create_message_select_query(ans):
 #     text = ''
