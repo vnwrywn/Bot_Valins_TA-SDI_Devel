@@ -184,6 +184,16 @@ def is_authenticated(user_id):
     else:
         return [True, False]  # Return True if user is an admin with full access
 
+def check_conv_status(func):
+    @wraps(func)
+    async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False], *args, **kwargs):
+        if context.chat_data.get('in_conversation'):
+            await update.message.reply_text('Mohon akhiri percakapan terlebih dahulu dengan menjalankan fungsi /batal.')
+        else:
+            # User is not authenticated or not an admin.
+            return await func(update, context, auth_status, *args, **kwargs)
+    return wrapper
+
 # Retrieve data from MySQL
 def get_sites(site_id=None):
     connection = create_mysql_connection()
