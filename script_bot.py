@@ -2,7 +2,7 @@
 # Fungsi tambah user (Token)
 
 ### Importing necessary libraries
-
+import pymysql
 import configparser # pip install configparser
 # import logging
 import jwt # pip install pyjwt
@@ -29,6 +29,22 @@ session_name = 'sessions/Bot'
 # USERNAME = config.get('default','username')
 # PASSWORD = config.get('default','password')
 # DATABASE = config.get('default','database')
+# Get Telegram bot token from configuration
+telegram_token = config['TELEGRAM']['TOKEN']
+
+# Create MySQL connection
+def create_mysql_connection():
+    host = config['MYSQL']['HOST']
+    user = config['MYSQL']['USER']
+    password = config['MYSQL']['PASSWORD']
+    database = config['MYSQL']['DATABASE']
+
+    return pymysql.connect(
+        host=host,
+        user=user,
+        password=password,
+        database=database
+    )
 
 # Main Function
 def main():
@@ -157,6 +173,60 @@ def authenticate_admin(func):
             context.bot.send_message(chat_id=update.effective_chat.id, text='Access denied.')
     return wrapper
 
+# Function to check user access in the database
+def is_authenticated(user_id):
+    connection = create_mysql_connection()
+    cursor = connection.cursor()
+
+    # Check if the user is an admin
+    query_admin = "SELECT * FROM allowed_users WHERE username = %s AND is_admin = 1"
+    cursor.execute(query_admin, (user_id,))
+    result_admin = cursor.fetchone()
+
+    if result_admin:
+        cursor.close()
+        connection.close()
+        return (True, True)  # Return True if user is an admin with full access
+
+    # Check if the user has limited access
+    query_user = "SELECT * FROM allowed_users WHERE username = %s"
+    cursor.execute(query_user, (user_id,))
+    result_user = cursor.fetchone()
+
+    if result_user:
+        cursor.close()
+        connection.close()
+        return (True, False)  # Return True if user has limited access
+
+    cursor.close()
+    connection.close()
+    return (False, False)  # Return False if user is not found in the allowed_users table
+
+# Retrieve data from MySQL
+def get_sites(site_id=None):
+    connection = create_mysql_connection()
+    cursor = connection.cursor()
+
+    query = "SELECT Site_ID_Tenant, Tenant, Alamat, Koordinat_Site FROM site_data"
+    if site_id:
+        query += f" WHERE Site_ID_Tenant = '{site_id}'"
+
+    cursor.execute(query)
+
+    sites = []
+    for (site_id, tenant, alamat, koordinat) in cursor:
+        sites.append({
+            'site_id': site_id,
+            'tenant': tenant,
+            'alamat': alamat,
+            'koordinat': koordinat
+        })
+
+    cursor.close()
+    connection.close()
+
+    return sites
+
 ### Main Menu
 @authenticate_user
 async def main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=None):
@@ -270,10 +340,14 @@ async def proses_tambah_user(update: Update, context: ContextTypes.DEFAULT_TYPE,
     userid = decoded_token['user_id']
     nama = decoded_token['nama']
 
-    if userid == '1139987918':
+     # Cek apakah user dengan user_id tertentu sudah ada di database
+    if user_exists(userid):
         await update.message.reply_text('User ID yang dimasukkan telah terdaftar. Proses tambah user dibatalkan.')
         context.chat_data['in_conversation'] = False
         return ConversationHandler.END
+    
+    # Jika user belum terdaftar, tambahkan user baru ke database
+    add_user(userid, nama)
 
     await update.message.reply_text(f'Berhasil menambahkan user berikut.\nUser ID: {userid}\nNama: {nama}')
     context.chat_data['in_conversation'] = False
@@ -286,33 +360,148 @@ async def proses_tambah_admin(update: Update, context: ContextTypes.DEFAULT_TYPE
     userid = decoded_token['user_id']
     nama = decoded_token['nama']
 
-    if userid == '1139987918':
-        await update.message.reply_text('User ID yang dimasukkan telah terdaftar. Proses tambah user dibatalkan.')
+    # Cek apakah admin dengan user_id tertentu sudah ada di database
+    if admin_exists(userid):
+        await update.message.reply_text('User ID yang dimasukkan telah terdaftar. Proses tambah admin dibatalkan.')
         context.chat_data['in_conversation'] = False
         return ConversationHandler.END
 
-    await update.message.reply_text(f'Berhasil menambahkan user berikut.\nUser ID: {userid}\nNama: {nama}')
+    # Jika admin belum terdaftar, tambahkan admin baru ke database
+    add_admin(userid, nama)
+
+    await update.message.reply_text(f'Berhasil menambahkan admin berikut.\nUser ID: {userid}\nNama: {nama}')
     context.chat_data['in_conversation'] = False
     return ConversationHandler.END
 
-### Hapus User (TODO)
+# Fungsi untuk cek apakah user dengan user_id tertentu sudah ada di database
+def user_exists(user_id):
+    connection = create_mysql_connection()
+    cursor = connection.cursor()
+
+    query = "SELECT * FROM allowed_users WHERE username = %s AND is_admin = 0"
+    cursor.execute(query, (user_id,))
+    result = cursor.fetchone()
+
+    cursor.close()
+    connection.close()
+
+    return result is not None
+
+# Fungsi untuk cek apakah admin dengan user_id tertentu sudah ada di database
+def admin_exists(user_id):
+    connection = create_mysql_connection()
+    cursor = connection.cursor()
+
+    query = "SELECT * FROM allowed_users WHERE username = %s AND is_admin = 1"
+    cursor.execute(query, (user_id,))
+    result = cursor.fetchone()
+
+    cursor.close()
+    connection.close()
+
+    return result is not None
+
+# Fungsi untuk menambahkan user baru ke database
+def add_user(user_id, nama):
+    connection = create_mysql_connection()
+    cursor = connection.cursor()
+
+    query = "INSERT INTO allowed_users (username, nama, is_admin) VALUES (%s, %s, 0)"
+    cursor.execute(query, (user_id, nama))
+
+    connection.commit()
+    cursor.close()
+    connection.close()
+
+# Fungsi untuk menambahkan admin baru ke database
+def add_admin(user_id, nama):
+    connection = create_mysql_connection()
+    cursor = connection.cursor()
+
+    query = "INSERT INTO allowed_users (username, nama, is_admin) VALUES (%s, %s, 1)"
+    cursor.execute(query, (user_id, nama))
+
+    connection.commit()
+    cursor.close()
+    connection.close()
+
+
+# HAPUS USER
+# Fungsi untuk menghapus user dari database
+def delete_user(user_id):
+    connection = create_mysql_connection()
+    cursor = connection.cursor()
+
+    # Implementasi penghapusan user dari database
+    delete_query = "DELETE FROM allowed_users WHERE username = %s"
+    cursor.execute(delete_query, (user_id,))
+    connection.commit()
+
+    cursor.close()
+    connection.close()
+
+# Fungsi untuk memeriksa apakah user merupakan admin terakhir atau bukan
+def is_last_admin(user_id):
+    connection = create_mysql_connection()
+    cursor = connection.cursor()
+
+    # Implementasi pengecekan apakah user merupakan admin terakhir atau bukan
+    admin_count_query = "SELECT COUNT(*) FROM allowed_users WHERE is_admin = 1"
+    cursor.execute(admin_count_query)
+    admin_count = cursor.fetchone()[0]
+
+    cursor.close()
+    connection.close()
+
+    return admin_count <= 1
+
+#  Fungsi untuk memproses hapus user
 @authenticate_admin
-async def hapus_user(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=None):
+async def konfirmasi_hapus_user(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=None):
     query = update.callback_query
+    button_pressed = query.data
+
+    # Ambil nama user dari inputan chat yang masuk
+    nama_user = button_pressed[6:].replace('_', ' ')
+
+    await context.bot.edit_message_reply_markup(chat_id=query.message.chat_id, message_id=query.message.message_id, reply_markup=None)
+    keyboard = [
+        [InlineKeyboardButton('Ya', callback_data='konfirmasi_hapus_ya')],
+        [InlineKeyboardButton('Tidak', callback_data='konfirmasi_hapus_tidak')],
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await context.bot.send_message(chat_id=query.message.chat_id, text=f'Apakah Anda yakin mau menghapus {nama_user} dari daftar user?', reply_markup=reply_markup)
+
+    # Simpan nama user ke dalam chat data untuk digunakan saat proses hapus user
+    context.chat_data['nama_user'] = nama_user
+
+    return 2
+
+# Fungsi untuk proses hapus user
+@authenticate_admin
+async def proses_hapus_user(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=None):
+    query = update.callback_query
+    button_pressed = query.data
     await context.bot.edit_message_reply_markup(chat_id=query.message.chat_id, message_id=query.message.message_id, reply_markup=None)
 
-    if context.chat_data.get('in_conversation'):
-        await context.bot.send_message(chat_id=query.message.chat_id, text='Mohon akhiri percakapan terlebih dahulu dengan menjalankan fungsi /batal.')
-        return
+    if button_pressed == 'konfirmasi_hapus_ya':
+        # Ambil nama user dari chat data
+        nama_user = context.chat_data.get('nama_user', '')
+        if not nama_user:
+            reply = 'Terjadi kesalahan saat memproses penghapusan user.'
+        elif is_last_admin(nama_user):
+            reply = 'Tidak bisa menghapus user admin terakhir. Silahkan tambahkan admin baru terlebih dahulu. Proses penghapusan user dibatalkan.'
+        else:
+            # Hapus user dari database
+            delete_user(nama_user)
+            reply = f'{nama_user} berhasil dihapus dari daftar user.'
 
-    context.chat_data['in_conversation'] = True
+        await context.bot.send_message(chat_id=query.message.chat_id, text=reply)
+    elif button_pressed == 'konfirmasi_hapus_tidak':
+        await context.bot.send_message(chat_id=query.message.chat_id, text='Proses penghapusan user dibatalkan.')
 
-    test_list = ['M. Ivan Wiryawan', 'User 1', 'User 2', 'User 3', 'User 4', 'User 5', 'User 6']
-    keyboard = [[InlineKeyboardButton(name, callback_data = 'hapus_' + name.replace(' ', '_'))] for name in test_list]
-
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await context.bot.send_message(chat_id=query.message.chat_id, text='Pilih user yang mau dihapus, atau keluar dari proses dengan menggunakan fungsi /batal.', reply_markup=reply_markup)
-    return 1
+    context.chat_data['in_conversation'] = False
+    return ConversationHandler.END
 
 @authenticate_admin
 async def konfirmasi_hapus_user(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=None):
@@ -359,15 +548,21 @@ async def peroleh_lokasi(update: Update, context: ContextTypes.DEFAULT_TYPE, aut
     await context.bot.send_message(chat_id=query.message.chat_id, text='Masukkan nama item.')
     return 1
 
+# Fungsi untuk memproses peroleh lokasi
 @authenticate_user
 async def proses_peroleh_lokasi(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=None):
     text = update.message.text
     if len(text) == 8 and text.isalnum():
 
-        if text.upper() == '20BAT001':
-            latitude = -7.88267
-            longitude = 112.527
-            await update.message.reply_text('Site_ID_Tenant: 20BAT001\nTenant: INDOSAT\nAlamat: Jl. Dewi Sartika Atas 110-104, Temas, Kec. Batu, Kota Batu, Jawa Timur 65315\nKoordinat Site: -7.88267,112.527')
+        # Cek apakah site dengan Site_ID_Tenant tertentu ada di database
+        site = get_site_by_id(text.upper())
+
+        if site:
+            latitude, longitude = parse_coordinates(site['koordinat'])
+            await update.message.reply_text(f"Site_ID_Tenant: {site['site_id']}\n"
+                                            f"Tenant: {site['tenant']}\n"
+                                            f"Alamat: {site['alamat']}\n"
+                                            f"Koordinat Site: {latitude},{longitude}")
             await update.message.reply_location(latitude, longitude)
             context.chat_data['in_conversation'] = False
             return ConversationHandler.END
@@ -378,6 +573,37 @@ async def proses_peroleh_lokasi(update: Update, context: ContextTypes.DEFAULT_TY
     await update.message.reply_text('Format penamaan salah. Silahkan masukkan kembali nama item atau keluar dari proses dengan menggunakan fungsi /batal.')
     return 1
 
+# Fungsi untuk mendapatkan site berdasarkan Site_ID_Tenant
+def get_site_by_id(site_id):
+    connection = create_mysql_connection()
+    cursor = connection.cursor()
+
+    query = "SELECT Site_ID_Tenant, Tenant, Alamat, Koordinat_Site FROM site_data WHERE Site_ID_Tenant = %s"
+    cursor.execute(query, (site_id,))
+    site = cursor.fetchone()
+
+    cursor.close()
+    connection.close()
+
+    if site:
+        return {
+            'site_id': site[0],
+            'tenant': site[1],
+            'alamat': site[2],
+            'koordinat': site[3]
+        }
+    else:
+        return None
+
+# Fungsi untuk memparse koordinat
+def parse_coordinates(coordinates):
+    coordinates = coordinates.split(',')
+    latitude = float(''.join(filter(lambda c: c.isdigit() or c in ['.', '-'], coordinates[0].strip())))
+    longitude = float(''.join(filter(lambda c: c.isdigit() or c in ['.', '-'], coordinates[1].strip())))
+    return latitude, longitude
+
+
+#+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 @authenticate_user
 async def peroleh_lokasi_func(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=None):
     args = context.args
