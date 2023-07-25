@@ -209,42 +209,10 @@ def get_sites(site_id=None):
 
     return sites
 
-def get_users():
-    connection = create_mysql_connection()
-    cursor = connection.cursor()
-
-    query = "SELECT username, Nama FROM allowed_users"
-    cursor.execute(query)
-
-    users = []
-    for (username, Nama) in cursor:
-        users.append({
-            'username': username,
-            'Nama': Nama
-        })
-
-    cursor.close()
-    connection.close()
-
-    return users
-
-def check_conv_status(func):
-    @wraps(func)
-    async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False], *args, **kwargs):
-        if context.chat_data.get('in_conversation'):
-            await update.message.reply_text('Mohon akhiri percakapan terlebih dahulu dengan menjalankan fungsi /batal.')
-        else:
-            # User is not authenticated or not an admin.
-            return await func(update, context, auth_status, *args, **kwargs)
-    return wrapper
-
 ### Main Menu
 @authenticate_user
 @check_conv_status
 async def main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
-        await update.message.reply_text('Mohon akhiri percakapan terlebih dahulu dengan menjalankan fungsi /batal.')
-        return
-
     keyboard = [
         [InlineKeyboardButton('Peroleh Lokasi Item', callback_data='opsi_peroleh_lokasi')],
         [InlineKeyboardButton('Peroleh Daftar Item Terdekat', callback_data='opsi_peroleh_nama')],
@@ -266,10 +234,6 @@ async def main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_sta
 @authenticate_admin
 @check_conv_status
 async def menu_input(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
-    query = update.callback_query
-        await context.bot.send_message(chat_id=query.message.chat_id, text='Mohon akhiri percakapan terlebih dahulu dengan menjalankan fungsi /batal.')
-        return
-
     context.chat_data['in_conversation'] = True
     await context.bot.edit_message_reply_markup(chat_id=query.message.chat_id, message_id=query.message.message_id, reply_markup=None)
 
@@ -316,10 +280,6 @@ async def input_pangkas(update: Update, context: ContextTypes.DEFAULT_TYPE, auth
 async def tambah_user(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
     query = update.callback_query
     await context.bot.edit_message_reply_markup(chat_id=query.message.chat_id, message_id=query.message.message_id, reply_markup=None)
-
-        await context.bot.send_message(chat_id=query.message.chat_id, text='Mohon akhiri percakapan terlebih dahulu dengan menjalankan fungsi /batal.')
-        return
-
     context.chat_data['in_conversation'] = True
 
     keyboard = [
@@ -474,10 +434,6 @@ async def hapus_user(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_st
     context.chat_data['in_conversation'] = True
 
     # ![Query Nama & ID User]
-    user_list = get_users()
-
-    if site:
-        latitude, longitude = parse_coordinates(site['koordinat'])
     test_list = ['M. Ivan Wiryawan', 'User 1', 'User 2', 'User 3', 'User 4', 'User 5', 'User 6']
     keyboard = [[InlineKeyboardButton(name, callback_data = 'hapus_' + name.replace(' ', '_'))] for name in test_list]
 
@@ -570,9 +526,6 @@ async def proses_hapus_user(update: Update, context: ContextTypes.DEFAULT_TYPE, 
 @check_conv_status
 async def peroleh_lokasi(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
     query = update.callback_query
-        await context.bot.send_message(chat_id=query.message.chat_id, text='Mohon akhiri percakapan terlebih dahulu dengan menjalankan fungsi /batal.')
-        return
-
     context.chat_data['in_conversation'] = True
     await context.bot.edit_message_reply_markup(chat_id=query.message.chat_id, message_id=query.message.message_id, reply_markup=None)
     await context.bot.send_message(chat_id=query.message.chat_id, text='Masukkan nama item.')
@@ -662,9 +615,6 @@ async def peroleh_lokasi_func(update: Update, context: ContextTypes.DEFAULT_TYPE
 @check_conv_status
 async def peroleh_nama_1(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
     query = update.callback_query
-        await context.bot.send_message(chat_id=query.message.chat_id, text='Mohon akhiri percakapan terlebih dahulu dengan menjalankan fungsi /batal.')
-        return
-
     context.chat_data['in_conversation'] = True
     await context.bot.edit_message_reply_markup(chat_id=query.message.chat_id, message_id=query.message.message_id, reply_markup=None)
     await context.bot.send_message(chat_id=query.message.chat_id, text='Kirimkan Lokasi Pencarian.')
@@ -712,9 +662,6 @@ async def proses_peroleh_nama(update: Update, context: ContextTypes.DEFAULT_TYPE
 @check_conv_status
 async def peroleh_berkas(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
     query = update.callback_query
-        await context.bot.send_message(chat_id=query.message.chat_id, text='Mohon akhiri percakapan terlebih dahulu dengan menjalankan fungsi /batal.')
-        return
-
     context.chat_data['in_conversation'] = True
     await context.bot.edit_message_reply_markup(chat_id=query.message.chat_id, message_id=query.message.message_id, reply_markup=None)
     await context.bot.send_message(chat_id=query.message.chat_id, text='Masukkan nama berkas.')
