@@ -17,7 +17,7 @@ from functools import wraps
 ### Initializing Configuration
 print('Initializing configuration...')
 config = configparser.ConfigParser()
-config.read('config.ini')
+config.read('config1.ini')
 
 API_ID = config.get('default','api_id')
 API_HASH = config.get('default','api_hash')
@@ -30,14 +30,12 @@ session_name = 'sessions/Bot'
 # PASSWORD = config.get('default','password')
 # DATABASE = config.get('default','database')
 # Get Telegram bot token from configuration
-telegram_token = config['TELEGRAM']['TOKEN']
 
-# Create MySQL connection
 def create_mysql_connection():
-    host = config['MYSQL']['HOST']
-    user = config['MYSQL']['USER']
-    password = config['MYSQL']['PASSWORD']
-    database = config['MYSQL']['DATABASE']
+    host = config.get('MYSQL', 'hostname')
+    user = config.get('MYSQL', 'username')
+    password = config.get('MYSQL', 'password')
+    database = config.get('MYSQL', 'database')
 
     return pymysql.connect(
         host=host,
