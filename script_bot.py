@@ -139,28 +139,29 @@ def exclude_commands_filter(update):
 ### Middleware functions for user authentication
 def authenticate_user(func):
     @wraps(func)
-    def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
+    async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False], *args, **kwargs):
         # Check if the user is authenticated
         auth_status = is_authenticated(update.effective_user.id)
+        print(auth_status)
         if auth_status[0]:
             # User is authenticated, execute the command handler
-            return func(update, context, auth_status)
+            return await func(update, context, auth_status_res, *args, **kwargs)
         else:
             # User is not authenticated.
-            context.bot.send_message(chat_id=update.effective_chat.id, text='Access denied.')
+            await context.bot.send_message(chat_id=update.effective_chat.id, text='Access denied.')
     return wrapper
 
 def authenticate_admin(func):
     @wraps(func)
-    def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
+    async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False], *args, **kwargs):
         # Check if the user is authenticated and is an admin
         auth_status = is_authenticated(update.effective_user.id)
         if auth_status[0] and auth_status[1]:
             # Admin is authenticated, execute the command handler
-            return func(update, context)
+            return await func(update, context, auth_status_res, *args, **kwargs)
         else:
             # User is not authenticated or not an admin.
-            context.bot.send_message(chat_id=update.effective_chat.id, text='Access denied.')
+            await context.bot.send_message(chat_id=update.effective_chat.id, text='Access denied.')
     return wrapper
 
 # Function to check user access in the database
@@ -171,13 +172,14 @@ def is_authenticated(user_id):
     # Check if the user is an admin
     query_admin = "SELECT is_admin FROM allowed_users WHERE username = %s"
     cursor.execute(query_admin, (user_id,))
-    result_admin = cursor.fetchone()
+    result = cursor.fetchone()
     cursor.close()
     connection.close()
+    print(result)
 
-    if query_admin == None:
+    if result == None:
         return [False, False]
-    elif query_admin:
+    elif result:
         return [True, True]  # Return True if user is an admin with full access
     else:
         return [True, False]  # Return True if user is an admin with full access
