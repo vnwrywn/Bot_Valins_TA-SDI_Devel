@@ -141,9 +141,9 @@ def authenticate_user(func):
     @wraps(func)
     async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False], *args, **kwargs):
         # Check if the user is authenticated
-        auth_status = is_authenticated(update.effective_user.id)
-        print(auth_status)
-        if auth_status[0]:
+        auth_status_res = is_authenticated(update.effective_user.id)
+        print(auth_status_res)
+        if auth_status_res[0]:
             # User is authenticated, execute the command handler
             return await func(update, context, auth_status_res, *args, **kwargs)
         else:
@@ -155,8 +155,8 @@ def authenticate_admin(func):
     @wraps(func)
     async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False], *args, **kwargs):
         # Check if the user is authenticated and is an admin
-        auth_status = is_authenticated(update.effective_user.id)
-        if auth_status[0] and auth_status[1]:
+        auth_status_res = is_authenticated(update.effective_user.id)
+        if auth_status_res[0] and auth_status_res[1]:
             # Admin is authenticated, execute the command handler
             return await func(update, context, auth_status_res, *args, **kwargs)
         else:
@@ -172,7 +172,7 @@ def is_authenticated(user_id):
     # Check if the user is an admin
     query_admin = "SELECT is_admin FROM allowed_users WHERE username = %s"
     cursor.execute(query_admin, (user_id,))
-    result = cursor.fetchone()
+    result = cursor.fetchone()[0]
     cursor.close()
     connection.close()
     print(result)
@@ -383,17 +383,17 @@ def user_exists(user_id):
 #
 #     return result is not None
 #
-# # Fungsi untuk menambahkan user baru ke database
-# def add_user(user_id, nama):
-#     connection = create_mysql_connection()
-#     cursor = connection.cursor()
-#
-#     query = "INSERT INTO allowed_users (username, nama, is_admin) VALUES (%s, %s, 0)"
-#     cursor.execute(query, (user_id, nama))
-#
-#     connection.commit()
-#     cursor.close()
-#     connection.close()
+# Fungsi untuk menambahkan user baru ke database
+def add_user(user_id, nama):
+     connection = create_mysql_connection()
+     cursor = connection.cursor()
+
+     query = "INSERT INTO allowed_users (username, nama, is_admin) VALUES (%s, %s, 0)"
+     cursor.execute(query, (user_id, nama))
+
+     connection.commit()
+     cursor.close()
+     connection.close()
 
 # Fungsi untuk menambahkan admin baru ke database
 def add_admin(user_id, nama):
