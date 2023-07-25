@@ -139,7 +139,7 @@ def exclude_commands_filter(update):
 ### Middleware functions for user authentication
 def authenticate_user(func):
     @wraps(func)
-    def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=None):
+    def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
         # Check if the user is authenticated
         auth_status = is_authenticated(update.effective_user.id)
         if auth_status[0]:
@@ -152,7 +152,7 @@ def authenticate_user(func):
 
 def authenticate_admin(func):
     @wraps(func)
-    def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=None):
+    def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
         # Check if the user is authenticated and is an admin
         auth_status = is_authenticated(update.effective_user.id)
         if auth_status[0] and auth_status[1]:
@@ -209,7 +209,7 @@ def get_sites(site_id=None):
 
 ### Main Menu
 @authenticate_user
-async def main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=None):
+async def main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
     if context.chat_data.get('in_conversation'):
         await update.message.reply_text('Mohon akhiri percakapan terlebih dahulu dengan menjalankan fungsi /batal.')
         return
@@ -221,7 +221,7 @@ async def main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_sta
         [InlineKeyboardButton('Bantuan', callback_data='opsi_bantuan')]
     ]
 
-    if update.message.from_user.id == 1139987918:
+    if auth_status[1]:
         keyboard =  [
             [InlineKeyboardButton('Input Data', callback_data='opsi_input_data')],
             [InlineKeyboardButton('Tambah User', callback_data='opsi_tambah_user')],
@@ -233,7 +233,7 @@ async def main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_sta
 
 ### Input Data
 @authenticate_admin
-async def menu_input(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=None):
+async def menu_input(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
     query = update.callback_query
     if context.chat_data.get('in_conversation'):
         await context.bot.send_message(chat_id=query.message.chat_id, text='Mohon akhiri percakapan terlebih dahulu dengan menjalankan fungsi /batal.')
@@ -252,7 +252,7 @@ async def menu_input(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_st
     return 1
 
 @authenticate_admin
-async def input_data(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=None):
+async def input_data(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
     query = update.callback_query
     button_pressed = query.data
 
@@ -266,14 +266,14 @@ async def input_data(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_st
     return 3
 
 @authenticate_admin
-async def input_satuan(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=None):
+async def input_satuan(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
     file = context.bot.get_file(update.message.document.file_id)
     await update.message.reply_text('Input satuan berhasil.')
     context.chat_data['in_conversation'] = False
     return ConversationHandler.END
 
 @authenticate_admin
-async def input_pangkas(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=None):
+async def input_pangkas(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
     file = context.bot.get_file(update.message.document.file_id)
     await update.message.reply_text('Pangkas dan input berhasil.')
     context.chat_data['in_conversation'] = False
@@ -281,7 +281,7 @@ async def input_pangkas(update: Update, context: ContextTypes.DEFAULT_TYPE, auth
 
 ### Tambah User
 @authenticate_admin
-async def tambah_user(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=None):
+async def tambah_user(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
     query = update.callback_query
     await context.bot.edit_message_reply_markup(chat_id=query.message.chat_id, message_id=query.message.message_id, reply_markup=None)
 
@@ -301,7 +301,7 @@ async def tambah_user(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_s
     return 1
 
 @authenticate_admin
-async def input_tambah_user(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=None):
+async def input_tambah_user(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
     query = update.callback_query
     button_pressed = query.data
     await context.bot.edit_message_reply_markup(chat_id=query.message.chat_id, message_id=query.message.message_id, reply_markup=None)
@@ -314,7 +314,7 @@ async def input_tambah_user(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     return 3
 
 @authenticate_admin
-async def proses_tambah_user(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=None):
+async def proses_tambah_user(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
     token = update.message.text
     decoded_token = jwt.decode(token, "secret", algorithms=["HS256"])
     userid = decoded_token['user_id']
@@ -334,7 +334,7 @@ async def proses_tambah_user(update: Update, context: ContextTypes.DEFAULT_TYPE,
     return ConversationHandler.END
 
 @authenticate_admin
-async def proses_tambah_admin(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=None):
+async def proses_tambah_admin(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
     token = update.message.text
     decoded_token = jwt.decode(token, "secret", algorithms=["HS256"])
     userid = decoded_token['user_id']
@@ -437,7 +437,7 @@ def is_last_admin(user_id):
 
 #  Fungsi untuk memproses hapus user
 @authenticate_admin
-async def konfirmasi_hapus_user(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=None):
+async def konfirmasi_hapus_user(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
     query = update.callback_query
     button_pressed = query.data
 
@@ -459,7 +459,7 @@ async def konfirmasi_hapus_user(update: Update, context: ContextTypes.DEFAULT_TY
 
 # Fungsi untuk proses hapus user
 @authenticate_admin
-async def proses_hapus_user(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=None):
+async def proses_hapus_user(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
     query = update.callback_query
     button_pressed = query.data
     await context.bot.edit_message_reply_markup(chat_id=query.message.chat_id, message_id=query.message.message_id, reply_markup=None)
@@ -484,7 +484,7 @@ async def proses_hapus_user(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     return ConversationHandler.END
 
 @authenticate_admin
-async def konfirmasi_hapus_user(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=None):
+async def konfirmasi_hapus_user(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
     query = update.callback_query
     button_pressed = query.data
     nama = context.chat_data['nama_user'] = button_pressed[6:].replace('_', ' ')
@@ -498,7 +498,7 @@ async def konfirmasi_hapus_user(update: Update, context: ContextTypes.DEFAULT_TY
     return 2
 
 @authenticate_admin
-async def proses_hapus_user(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=None):
+async def proses_hapus_user(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
     query = update.callback_query
     button_pressed = query.data
     await context.bot.edit_message_reply_markup(chat_id=query.message.chat_id, message_id=query.message.message_id, reply_markup=None)
@@ -517,7 +517,7 @@ async def proses_hapus_user(update: Update, context: ContextTypes.DEFAULT_TYPE, 
 
 ### Peroleh Lokasi
 @authenticate_user
-async def peroleh_lokasi(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=None):
+async def peroleh_lokasi(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
     query = update.callback_query
     if context.chat_data.get('in_conversation'):
         await context.bot.send_message(chat_id=query.message.chat_id, text='Mohon akhiri percakapan terlebih dahulu dengan menjalankan fungsi /batal.')
@@ -530,7 +530,7 @@ async def peroleh_lokasi(update: Update, context: ContextTypes.DEFAULT_TYPE, aut
 
 # Fungsi untuk memproses peroleh lokasi
 @authenticate_user
-async def proses_peroleh_lokasi(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=None):
+async def proses_peroleh_lokasi(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
     text = update.message.text
     if len(text) == 8 and text.isalnum():
 
@@ -585,7 +585,7 @@ def parse_coordinates(coordinates):
 
 #+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 @authenticate_user
-async def peroleh_lokasi_func(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=None):
+async def peroleh_lokasi_func(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
     args = context.args
     if context.chat_data.get('in_conversation'):
         await update.message.reply_text('Mohon akhiri percakapan terlebih dahulu dengan menjalankan fungsi /batal.')
@@ -609,7 +609,7 @@ async def peroleh_lokasi_func(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 ### Peroleh Nama
 @authenticate_user
-async def peroleh_nama_1(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=None):
+async def peroleh_nama_1(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
     query = update.callback_query
     if context.chat_data.get('in_conversation'):
         await context.bot.send_message(chat_id=query.message.chat_id, text='Mohon akhiri percakapan terlebih dahulu dengan menjalankan fungsi /batal.')
@@ -621,7 +621,7 @@ async def peroleh_nama_1(update: Update, context: ContextTypes.DEFAULT_TYPE, aut
     return 1
 
 @authenticate_user
-async def peroleh_nama_2(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=None):
+async def peroleh_nama_2(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
     query = update.callback_query
     location = update.message.location
     context.chat_data['latitude'] = location.latitude
@@ -630,7 +630,7 @@ async def peroleh_nama_2(update: Update, context: ContextTypes.DEFAULT_TYPE, aut
     return 2
 
 @authenticate_user
-async def proses_peroleh_nama(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=None):
+async def proses_peroleh_nama(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
     dist = update.message.text
 
     if dist.lstrip('-').replace(',', '').replace('.', '').isnumeric():
@@ -659,7 +659,7 @@ async def proses_peroleh_nama(update: Update, context: ContextTypes.DEFAULT_TYPE
     return 2
 
 @authenticate_user
-async def peroleh_berkas(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=None):
+async def peroleh_berkas(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
     query = update.callback_query
     if context.chat_data.get('in_conversation'):
         await context.bot.send_message(chat_id=query.message.chat_id, text='Mohon akhiri percakapan terlebih dahulu dengan menjalankan fungsi /batal.')
@@ -671,13 +671,13 @@ async def peroleh_berkas(update: Update, context: ContextTypes.DEFAULT_TYPE, aut
     return 1
 
 @authenticate_user
-async def proses_peroleh_berkas(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=None):
+async def proses_peroleh_berkas(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
     text = update.message.text
     await update.message.reply_text('[PLACEHOLDER BERKAS]')
     context.chat_data['in_conversation'] = False
     return ConversationHandler.END
 
-async def batal(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=None):
+async def batal(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
     if context.chat_data['in_conversation']:
         context.chat_data['in_conversation'] = False
         await update.message.reply_text('Proses dibatalkan.')
@@ -686,7 +686,7 @@ async def batal(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=
     await update.message.reply_text('Tidak ada proses yang sedang berjalan.')
 
 @authenticate_user
-async def bantuan(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=None):
+async def bantuan(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
     query = update.callback_query
     await context.bot.send_message(chat_id=query.message.chat_id, text='''Fungsi Dasar
 /start
@@ -705,11 +705,11 @@ Peroleh Lokasi Item: Menjalankan proses untuk memperoleh lokasi item berdasarkan
 Peroleh Nama Item: Menjalankan proses untuk memperoleh nama-nama item berdasarkan lokasi.
 Peroleh File Set: Menjalankan proses untuk memperoleh berkas-berkas berdasarkan nama.''')
 
-async def get_token(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=None):
+async def get_token(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
     await update.message.reply_text(f"Mohon kirimkan nama lengkap anda.")
     return 1
 
-async def get_token_process(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=None):
+async def get_token_process(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
     nama = update.message.text.capitalize()
     user_id = str(update.message.from_user.id)
     expiration_time = datetime.utcnow() + timedelta(hours=1)
