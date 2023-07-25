@@ -76,7 +76,7 @@ def main():
 
     ### Conversation Handler Menu Hapus User
     hapus_user_handler = ConversationHandler(
-        entry_points=[CallbackQueryHandler(hapus_user, pattern='^opsi_hapus_user$')],
+        entry_points=[CallbackQueryHandler(delete_user, pattern='^opsi_hapus_user$')],
         states={
             1: [CallbackQueryHandler(konfirmasi_hapus_user, pattern='^hapus_')],
             2: [CallbackQueryHandler(proses_hapus_user, pattern='^konfirmasi_hapus_')]
