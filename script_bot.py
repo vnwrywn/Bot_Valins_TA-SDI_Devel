@@ -138,14 +138,6 @@ def main():
 def exclude_commands_filter(update):
     return not update.message.text.startswith('/')
 
-def is_authenticated(user_id: int):
-    if user_id == 1139987918:
-        return [True, True]
-    elif user_id == 6119375027:
-        return [True, False]
-
-    return [False, False]
-
 ### Middleware functions for user authentication
 def authenticate_user(func):
     @wraps(func)
@@ -179,28 +171,18 @@ def is_authenticated(user_id):
     cursor = connection.cursor()
 
     # Check if the user is an admin
-    query_admin = "SELECT * FROM allowed_users WHERE username = %s AND is_admin = 1"
+    query_admin = "SELECT is_admin FROM allowed_users WHERE username = %s"
     cursor.execute(query_admin, (user_id,))
     result_admin = cursor.fetchone()
-
-    if result_admin:
-        cursor.close()
-        connection.close()
-        return (True, True)  # Return True if user is an admin with full access
-
-    # Check if the user has limited access
-    query_user = "SELECT * FROM allowed_users WHERE username = %s"
-    cursor.execute(query_user, (user_id,))
-    result_user = cursor.fetchone()
-
-    if result_user:
-        cursor.close()
-        connection.close()
-        return (True, False)  # Return True if user has limited access
-
     cursor.close()
     connection.close()
-    return (False, False)  # Return False if user is not found in the allowed_users table
+
+    if query_admin == None:
+        return [False, False]
+    elif query_admin:
+        return [True, True]  # Return True if user is an admin with full access
+    else:
+        return [True, False]  # Return True if user is an admin with full access
 
 # Retrieve data from MySQL
 def get_sites(site_id=None):
@@ -345,7 +327,7 @@ async def proses_tambah_user(update: Update, context: ContextTypes.DEFAULT_TYPE,
         await update.message.reply_text('User ID yang dimasukkan telah terdaftar. Proses tambah user dibatalkan.')
         context.chat_data['in_conversation'] = False
         return ConversationHandler.END
-    
+
     # Jika user belum terdaftar, tambahkan user baru ke database
     add_user(userid, nama)
 
@@ -361,7 +343,7 @@ async def proses_tambah_admin(update: Update, context: ContextTypes.DEFAULT_TYPE
     nama = decoded_token['nama']
 
     # Cek apakah admin dengan user_id tertentu sudah ada di database
-    if admin_exists(userid):
+    if user_exists(userid):
         await update.message.reply_text('User ID yang dimasukkan telah terdaftar. Proses tambah admin dibatalkan.')
         context.chat_data['in_conversation'] = False
         return ConversationHandler.END
@@ -378,7 +360,7 @@ def user_exists(user_id):
     connection = create_mysql_connection()
     cursor = connection.cursor()
 
-    query = "SELECT * FROM allowed_users WHERE username = %s AND is_admin = 0"
+    query = "SELECT * FROM allowed_users WHERE username = %s"
     cursor.execute(query, (user_id,))
     result = cursor.fetchone()
 
@@ -387,31 +369,31 @@ def user_exists(user_id):
 
     return result is not None
 
-# Fungsi untuk cek apakah admin dengan user_id tertentu sudah ada di database
-def admin_exists(user_id):
-    connection = create_mysql_connection()
-    cursor = connection.cursor()
-
-    query = "SELECT * FROM allowed_users WHERE username = %s AND is_admin = 1"
-    cursor.execute(query, (user_id,))
-    result = cursor.fetchone()
-
-    cursor.close()
-    connection.close()
-
-    return result is not None
-
-# Fungsi untuk menambahkan user baru ke database
-def add_user(user_id, nama):
-    connection = create_mysql_connection()
-    cursor = connection.cursor()
-
-    query = "INSERT INTO allowed_users (username, nama, is_admin) VALUES (%s, %s, 0)"
-    cursor.execute(query, (user_id, nama))
-
-    connection.commit()
-    cursor.close()
-    connection.close()
+# # Fungsi untuk cek apakah admin dengan user_id tertentu sudah ada di database
+# def admin_exists(user_id):
+#     connection = create_mysql_connection()
+#     cursor = connection.cursor()
+#
+#     query = "SELECT * FROM allowed_users WHERE username = %s AND is_admin = 1"
+#     cursor.execute(query, (user_id,))
+#     result = cursor.fetchone()
+#
+#     cursor.close()
+#     connection.close()
+#
+#     return result is not None
+#
+# # Fungsi untuk menambahkan user baru ke database
+# def add_user(user_id, nama):
+#     connection = create_mysql_connection()
+#     cursor = connection.cursor()
+#
+#     query = "INSERT INTO allowed_users (username, nama, is_admin) VALUES (%s, %s, 0)"
+#     cursor.execute(query, (user_id, nama))
+#
+#     connection.commit()
+#     cursor.close()
+#     connection.close()
 
 # Fungsi untuk menambahkan admin baru ke database
 def add_admin(user_id, nama):
@@ -555,7 +537,7 @@ async def proses_peroleh_lokasi(update: Update, context: ContextTypes.DEFAULT_TY
     if len(text) == 8 and text.isalnum():
 
         # Cek apakah site dengan Site_ID_Tenant tertentu ada di database
-        site = get_site_by_id(text.upper())
+        site = get_sites(text.upper())
 
         if site:
             latitude, longitude = parse_coordinates(site['koordinat'])
@@ -573,27 +555,27 @@ async def proses_peroleh_lokasi(update: Update, context: ContextTypes.DEFAULT_TY
     await update.message.reply_text('Format penamaan salah. Silahkan masukkan kembali nama item atau keluar dari proses dengan menggunakan fungsi /batal.')
     return 1
 
-# Fungsi untuk mendapatkan site berdasarkan Site_ID_Tenant
-def get_site_by_id(site_id):
-    connection = create_mysql_connection()
-    cursor = connection.cursor()
-
-    query = "SELECT Site_ID_Tenant, Tenant, Alamat, Koordinat_Site FROM site_data WHERE Site_ID_Tenant = %s"
-    cursor.execute(query, (site_id,))
-    site = cursor.fetchone()
-
-    cursor.close()
-    connection.close()
-
-    if site:
-        return {
-            'site_id': site[0],
-            'tenant': site[1],
-            'alamat': site[2],
-            'koordinat': site[3]
-        }
-    else:
-        return None
+# # Fungsi untuk mendapatkan site berdasarkan Site_ID_Tenant
+# def get_site_by_id(site_id):
+#     connection = create_mysql_connection()
+#     cursor = connection.cursor()
+#
+#     query = "SELECT Site_ID_Tenant, Tenant, Alamat, Koordinat_Site FROM site_data WHERE Site_ID_Tenant = %s"
+#     cursor.execute(query, (site_id,))
+#     site = cursor.fetchone()
+#
+#     cursor.close()
+#     connection.close()
+#
+#     if site:
+#         return {
+#             'site_id': site[0],
+#             'tenant': site[1],
+#             'alamat': site[2],
+#             'koordinat': site[3]
+#         }
+#     else:
+#         return None
 
 # Fungsi untuk memparse koordinat
 def parse_coordinates(coordinates):
