@@ -1,5 +1,7 @@
 ###TODO!!!
-# Fungsi tambah user (Token)
+# Fungsi input data
+# Fungsi truncate & insert (SQL)
+# Fungsi selective insert (SQL)
 
 ### Importing necessary libraries
 import pymysql
@@ -11,13 +13,17 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKe
 from telegram.ext import Application, CommandHandler, ConversationHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 from telegram.constants import ParseMode
 from functools import wraps
+from math import ceil
+import io
+import csv
+from geopy.geocoders import Nominatim
 # from datetime import datetime
 # import MySQLdb # pip install mysqlclient
 
 ### Initializing Configuration
 print('Initializing configuration...')
 config = configparser.ConfigParser()
-config.read('config1.ini')
+config.read('config.ini')
 
 API_ID = config.get('default','api_id')
 API_HASH = config.get('default','api_hash')
@@ -36,9 +42,11 @@ def create_mysql_connection():
     user = config.get('MYSQL', 'username')
     password = config.get('MYSQL', 'password')
     database = config.get('MYSQL', 'database')
+    port = int(config.get('MYSQL', 'port'))
 
     return pymysql.connect(
         host=host,
+        port=port,
         user=user,
         password=password,
         database=database
@@ -54,8 +62,8 @@ def main():
         entry_points=[CallbackQueryHandler(menu_input, pattern='^opsi_input_data$')],
         states={
             1: [CallbackQueryHandler(input_data, pattern='^input_')],
-            2: [MessageHandler(filters.Document.MimeType('text/plain'), input_satuan)],
-            3: [MessageHandler(filters.Document.MimeType('text/plain'), input_pangkas)]
+            2: [MessageHandler(filters.Document.FileExtension('xlsx'), input_satuan_xlsx), MessageHandler(filters.Document.FileExtension('csv'), input_satuan_csv)],
+            3: [MessageHandler(filters.Document.FileExtension('xlsx'), input_pangkas_xlsx), MessageHandler(filters.Document.FileExtension('csv'), input_pangkas_csv)]
         },
         fallbacks=[CommandHandler('batal', batal)]
     )
@@ -142,7 +150,6 @@ def authenticate_user(func):
     async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False], *args, **kwargs):
         # Check if the user is authenticated
         auth_status_res = is_authenticated(update.effective_user.id)
-        print(auth_status_res)
         if auth_status_res[0]:
             # User is authenticated, execute the command handler
             return await func(update, context, auth_status_res, *args, **kwargs)
@@ -175,7 +182,6 @@ def is_authenticated(user_id):
     result = cursor.fetchone()[0]
     cursor.close()
     connection.close()
-    print(result)
 
     if result == None:
         return [False, False]
@@ -198,14 +204,37 @@ def check_conv_status(func):
 def get_sites(site_id=None):
     connection = create_mysql_connection()
     cursor = connection.cursor()
-
     query = "SELECT Site_ID_Tenant, Tenant, Alamat, Koordinat_Site FROM site_data"
     if site_id:
         query += f" WHERE Site_ID_Tenant = '{site_id}'"
-
     cursor.execute(query)
-
     sites = []
+
+    for (site_id, tenant, alamat, koordinat) in cursor:
+        sites.append({
+            'site_id': site_id,
+            'tenant': tenant,
+            'alamat': alamat,
+            'koordinat': koordinat
+        })
+
+    cursor.close()
+    connection.close()
+
+    return sites
+
+# Insert data into MySQL
+def truncate_and_insert_sites(site_datas):
+    connection = create_mysql_connection()
+    cursor = connection.cursor()
+    query = 'START TRANSACTION;'
+    query += '\nTRUNCATE TABLE site_data;'
+    for row in site_datas:
+        query += "\nINSERT INTO `site_data` (`Site_ID_Tenant`, `Tenant`, `Alamat`, `Koordinat_Site`) VALUES ({0}, {1}, {2}, {3});".format(row['Site_ID_Tenant'], row['Tenant'], row['Alamat'], row['Koordinat Site'], )
+    query += '\nCOMMIT;'
+    cursor.execute(query)
+    sites = []
+
     for (site_id, tenant, alamat, koordinat) in cursor:
         sites.append({
             'site_id': site_id,
@@ -237,13 +266,13 @@ async def main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_sta
             [InlineKeyboardButton('Hapus User', callback_data='opsi_hapus_user')],
         ] + keyboard
 
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text('Menu Utama', reply_markup=reply_markup)
+    await update.message.reply_text('Menu Utama', reply_markup=InlineKeyboardMarkup(keyboard))
 
 ### Input Data
 @authenticate_admin
 @check_conv_status
 async def menu_input(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
+    query = update.callback_query
     context.chat_data['in_conversation'] = True
     await context.bot.edit_message_reply_markup(chat_id=query.message.chat_id, message_id=query.message.message_id, reply_markup=None)
 
@@ -252,8 +281,7 @@ async def menu_input(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_st
         [InlineKeyboardButton('Input Satuan', callback_data='input_satuan')],
     ]
 
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await context.bot.send_message(chat_id=query.message.chat_id, text='Pilih metode input.', reply_markup=reply_markup)
+    await context.bot.send_message(chat_id=query.message.chat_id, text='Pilih metode input.', reply_markup=InlineKeyboardMarkup(keyboard))
     return 1
 
 @authenticate_admin
@@ -262,25 +290,63 @@ async def input_data(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_st
     button_pressed = query.data
 
     await context.bot.edit_message_reply_markup(chat_id=query.message.chat_id, message_id=query.message.message_id, reply_markup=None)
+    await context.bot.send_message(chat_id=query.message.chat_id, text='Silahkan unggah berkas.')
 
     if button_pressed == 'input_satuan':
-        await context.bot.send_message(chat_id=query.message.chat_id, text='Silahkan unggah berkas.')
         return 2
 
-    await context.bot.send_message(chat_id=query.message.chat_id, text='Silahkan unggah berkas.')
     return 3
 
 @authenticate_admin
-async def input_satuan(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
+async def input_satuan_xlsx(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
     file = context.bot.get_file(update.message.document.file_id)
     await update.message.reply_text('Input satuan berhasil.')
     context.chat_data['in_conversation'] = False
     return ConversationHandler.END
 
 @authenticate_admin
-async def input_pangkas(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
+async def input_satuan_csv(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
     file = context.bot.get_file(update.message.document.file_id)
-    await update.message.reply_text('Pangkas dan input berhasil.')
+    await update.message.reply_text('Input satuan berhasil.')
+    context.chat_data['in_conversation'] = False
+    return ConversationHandler.END
+
+@authenticate_admin
+async def input_pangkas_xlsx(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
+    file = await context.bot.get_file(update.message.document.file_id)
+    buffer = io.BytesIO()
+    await file.download_to_memory(out=buffer)
+    file_size = len(buffer.getvalue())
+    await update.message.reply_text(f"The .xlsx file size is: {file_size} bytes")
+    context.chat_data['in_conversation'] = False
+    return ConversationHandler.END
+
+@authenticate_admin
+async def input_pangkas_csv(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
+    file = await context.bot.get_file(update.message.document.file_id)
+    buffer = io.BytesIO()
+    await file.download_to_memory(out=buffer)
+    file_size = len(buffer.getvalue())
+    output = []
+    geolocator = Nominatim(user_agent="Geocoder")
+    with io.TextIOWrapper(io.BytesIO(buffer.getvalue())) as csv_file:
+        csv_reader = csv.DictReader(csv_file)
+        for row in csv_reader:
+            ongoing = True
+            while ongoing:
+                try:
+                    location = geolocator.reverse(row['Koordinat Site'])
+                    ongoing = False
+                    break
+                except TimeoutError:
+                    print('Timed out. Retrying...')
+                    pass
+
+            print(location.address)
+            row['Alamat'] = location.address
+            output.append(row)
+    print(output)
+    await update.message.reply_text(f"The .xlsx file size is: {file_size} bytes")
     context.chat_data['in_conversation'] = False
     return ConversationHandler.END
 
@@ -297,8 +363,7 @@ async def tambah_user(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_s
         [InlineKeyboardButton('Tambahkan User Admin', callback_data='tambah_admin')],
     ]
 
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await context.bot.send_message(chat_id=query.message.chat_id, text='Pilih jenis user.', reply_markup=reply_markup)
+    await context.bot.send_message(chat_id=query.message.chat_id, text='Pilih jenis user.', reply_markup=InlineKeyboardMarkup(keyboard))
     return 1
 
 @authenticate_admin
@@ -447,8 +512,7 @@ async def hapus_user(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_st
     test_list = ['M. Ivan Wiryawan', 'User 1', 'User 2', 'User 3', 'User 4', 'User 5', 'User 6']
     keyboard = [[InlineKeyboardButton(name, callback_data = 'hapus_' + name.replace(' ', '_'))] for name in test_list]
 
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await context.bot.send_message(chat_id=query.message.chat_id, text='Pilih user yang mau dihapus, atau keluar dari proses dengan menggunakan fungsi /batal.', reply_markup=reply_markup)
+    await context.bot.send_message(chat_id=query.message.chat_id, text='Pilih user yang mau dihapus, atau keluar dari proses dengan menggunakan fungsi /batal.', reply_markup=InlineKeyboardMarkup(keyboard))
     return 1
 
 #  Fungsi untuk memproses hapus user
@@ -465,8 +529,7 @@ async def konfirmasi_hapus_user(update: Update, context: ContextTypes.DEFAULT_TY
         [InlineKeyboardButton('Ya', callback_data='konfirmasi_hapus_ya')],
         [InlineKeyboardButton('Tidak', callback_data='konfirmasi_hapus_tidak')],
     ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await context.bot.send_message(chat_id=query.message.chat_id, text=f'Apakah Anda yakin mau menghapus {nama_user} dari daftar user?', reply_markup=reply_markup)
+    await context.bot.send_message(chat_id=query.message.chat_id, text=f'Apakah Anda yakin mau menghapus {nama_user} dari daftar user?', reply_markup=InlineKeyboardMarkup(keyboard))
 
     # Simpan nama user ke dalam chat data untuk digunakan saat proses hapus user
     context.chat_data['nama_user'] = nama_user
@@ -509,8 +572,7 @@ async def konfirmasi_hapus_user(update: Update, context: ContextTypes.DEFAULT_TY
         [InlineKeyboardButton('Ya', callback_data='konfirmasi_hapus_ya')],
         [InlineKeyboardButton('Tidak', callback_data='konfirmasi_hapus_tidak')],
     ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await context.bot.send_message(chat_id=query.message.chat_id, text=f'Apakah anda yakin mau menghapus {nama} dari daftar user?', reply_markup=reply_markup)
+    await context.bot.send_message(chat_id=query.message.chat_id, text=f'Apakah anda yakin mau menghapus {nama} dari daftar user?', reply_markup=InlineKeyboardMarkup(keyboard))
     return 2
 
 @authenticate_admin
@@ -538,7 +600,8 @@ async def peroleh_lokasi(update: Update, context: ContextTypes.DEFAULT_TYPE, aut
     query = update.callback_query
     await context.bot.edit_message_reply_markup(chat_id=query.message.chat_id, message_id=query.message.message_id, reply_markup=None)
     context.chat_data['in_conversation'] = True
-    site_list = get_sites(query.data)
+    site_list = get_sites()
+    context.chat_data['site_list'] = site_list
     keyboard = []
 
     for i in range(ceil(len(site_list)/3)):
@@ -547,13 +610,12 @@ async def peroleh_lokasi(update: Update, context: ContextTypes.DEFAULT_TYPE, aut
 
         for j in range(1, 3):
             try:
-                temp_item = item_list[i * 3 + j]['site_id']
+                temp_item = site_list[i * 3 + j]['site_id']
                 keyboard[-1].append(InlineKeyboardButton(temp_item, callback_data='item_' + temp_item))
-            except:
+            except IndexError:
                 break
 
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    message = await context.bot.send_message(chat_id=query.message.chat_id, text='Silahkan masukkan nama item atau pilih item dari tombol di bawah ini.', reply_markup=reply_markup)
+    message = await context.bot.send_message(chat_id=query.message.chat_id, text='Silahkan masukkan nama item atau pilih item dari tombol di bawah ini.', reply_markup=InlineKeyboardMarkup(keyboard))
     context.user_data['last_message_id'] = message.message_id
     return 1
 
@@ -565,13 +627,14 @@ async def proses_peroleh_lokasi_text(update: Update, context: ContextTypes.DEFAU
     if len(text) == 8 and text.isalnum():
 
         # Cek apakah site dengan Site_ID_Tenant tertentu ada di database
-        site = get_sites(text.upper())
-
-        if site:
+        try:
+            site = next(item for item in context.chat_data['site_list'] if item['site_id'] == text.upper())
             await kirim_data_item(update, context, [False, False], site)
-
-        await update.message.reply_text('Site tidak ditemukan. Silahkan masukkan atau pilih kembali nama site atau keluar dari proses dengan menggunakan fungsi /batal.')
-        return 1
+            context.chat_data['in_conversation'] = False
+            return ConversationHandler.END
+        except StopIteration:
+            await update.message.reply_text('Site tidak ditemukan. Silahkan masukkan atau pilih kembali nama site atau keluar dari proses dengan menggunakan fungsi /batal.')
+            return 1
 
     await update.message.reply_text('Format penamaan salah. Silahkan masukkan atau pilih kembali nama site atau keluar dari proses dengan menggunakan fungsi /batal.')
     return 1
@@ -582,15 +645,14 @@ async def proses_peroleh_lokasi_button(update: Update, context: ContextTypes.DEF
     await context.bot.edit_message_reply_markup(chat_id=query.message.chat_id, message_id=query.message.message_id, reply_markup=None)
 
     # Cek apakah site dengan Site_ID_Tenant tertentu ada di database
-    site = get_sites(query.data)
-
-    if site:
+    try:
+        site = next(item for item in context.chat_data['site_list'] if item['site_id'] == query.data[5:])
         await kirim_data_item(update, context, [False, False], site)
-        await context.bot.edit_message_reply_markup(chat_id=query.message.chat_id, message_id=query.message.message_id, reply_markup=None)
+        context.chat_data['in_conversation'] = False
         return ConversationHandler.END
-
-    await update.message.reply_text('Site tidak ditemukan. Silahkan masukkan atau pilih kembali nama site atau keluar dari proses dengan menggunakan fungsi /batal.')
-    return 1
+    except StopIteration:
+        await context.bot.send_message(chat_id=query.message.chat_id, text='Site tidak ditemukan. Silahkan masukkan atau pilih kembali nama site atau keluar dari proses dengan menggunakan fungsi /batal.')
+        return 1
 
 # # Fungsi untuk mendapatkan site berdasarkan Site_ID_Tenant
 # def get_site_by_id(site_id):
@@ -634,7 +696,7 @@ async def peroleh_lokasi_func(update: Update, context: ContextTypes.DEFAULT_TYPE
             site = get_sites(text.upper())
 
             if site:
-                await kirim_data_item(update, context, [False, False], site)
+                await kirim_data_item(update, context, [False, False], site[0])
 
             else:
                 await update.message.reply_text('Site tidak ditemukan.')
@@ -711,7 +773,7 @@ async def proses_peroleh_berkas(update: Update, context: ContextTypes.DEFAULT_TY
 async def batal(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
     if context.chat_data['in_conversation']:
         context.chat_data['in_conversation'] = False
-        await update.message.reply_text('Proses dibatalkan.')
+        await update.message.reply_text('Proses telah dibatalkan.')
         return ConversationHandler.END
 
     await update.message.reply_text('Tidak ada proses yang sedang berjalan.')
@@ -765,8 +827,14 @@ async def kirim_data_item(update: Update, context: ContextTypes.DEFAULT_TYPE, au
     text += 'Tenant: {}\n'.format(data['tenant'])
     text += 'Alamat: {}\n'.format(data['alamat'])
     text += 'Koordinat Site: [{0},{1}](http://maps.google.com/maps?q={0},{1})\n'.format(koordinat[0], koordinat[1])
-    await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
-    await update.message.reply_location(koordinat[0], koordinat[1])
+    query = update.callback_query
+
+    if query:
+        await context.bot.send_message(chat_id=query.message.chat_id, text=text, parse_mode=ParseMode.MARKDOWN)
+        await context.bot.send_location(chat_id=query.message.chat_id, latitude=koordinat[0], longitude=koordinat[1])
+    else:
+        await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
+        await update.message.reply_location(koordinat[0], koordinat[1])
 
 # # Function that creates a message containing a list of all the oders
 # def create_message_select_query(ans):
