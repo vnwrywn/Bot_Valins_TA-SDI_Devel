@@ -1,7 +1,10 @@
-FROM python:3.12.0b1-slim-bullseye
-COPY . .
-RUN apt-get update
-RUN apt-get install gcc -y
-RUN apt-get install default-libmysqlclient-dev -y
-RUN pip3 install --no-cache-dir -r requirements.txt
-CMD python script_mysql.py
+FROM python:3.11.4-slim
+COPY /app /app
+COPY requirements.txt .
+RUN adduser --disabled-password botuser
+RUN chmod 755 /app && chmod 766 /app/sessions
+USER botuser
+RUN pip install --no-cache-dir -r requirements.txt
+WORKDIR /app
+ENV APP_TMP_DATA=/tmp
+CMD python script_bot.py

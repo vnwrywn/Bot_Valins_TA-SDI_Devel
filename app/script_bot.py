@@ -20,16 +20,6 @@ from geopy.geocoders import Nominatim
 # from datetime import datetime
 # import MySQLdb # pip install mysqlclient
 
-### Initializing Configuration
-print('Initializing configuration...')
-config = configparser.ConfigParser()
-config.read('config.ini')
-
-API_ID = config.get('default','api_id')
-API_HASH = config.get('default','api_hash')
-BOT_TOKEN = config.get('default','bot_token')
-session_name = 'sessions/Bot'
-
 # # Read values for MySQLdb
 # HOSTNAME = config.get('default','hostname')
 # USERNAME = config.get('default','username')
@@ -38,6 +28,10 @@ session_name = 'sessions/Bot'
 # Get Telegram bot token from configuration
 
 def create_mysql_connection():
+    print('Initializing configuration...')
+    config = configparser.ConfigParser()
+    config.read('config.ini')
+
     host = config.get('MYSQL', 'hostname')
     user = config.get('MYSQL', 'username')
     password = config.get('MYSQL', 'password')
@@ -54,6 +48,16 @@ def create_mysql_connection():
 
 # Main Function
 def main():
+    ### Initializing Configuration
+    print('Initializing configuration...')
+    config = configparser.ConfigParser()
+    config.read('config.ini')
+
+    API_ID = config.get('default','api_id')
+    API_HASH = config.get('default','api_hash')
+    BOT_TOKEN = config.get('default','bot_token')
+    session_name = 'sessions/Bot'
+
     # logging.basicConfig(level=logging.DEBUG)
     app = Application.builder().token(BOT_TOKEN).build()
 
