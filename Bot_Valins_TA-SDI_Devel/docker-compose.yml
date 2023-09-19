@@ -1,0 +1,31 @@
+version: '3'
+
+services:
+  mysql_server:
+    image: mysql:latest
+    container_name: mysql_server
+    networks:
+      - bot_telegram_devel
+    volumes:
+      - mysql_data:/var/lib/mysql
+    ports:
+      - "3307:3306"
+    command: --bind-address=0.0.0.0
+
+  bot_valins_ta-sdi_devel:
+    build: ./
+    container_name: telebot
+    depends_on:
+      - mysql_server
+    links:
+      - mysql_server
+    networks:
+      - bot_telegram_devel
+
+networks:
+  bot_telegram_devel:
+
+volumes:
+  mysql_data:
+    external: true
+
