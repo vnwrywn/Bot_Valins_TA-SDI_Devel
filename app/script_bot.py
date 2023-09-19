@@ -18,6 +18,7 @@ import io
 import csv
 import os
 import openpyxl
+import math
 from geopy.geocoders import Nominatim
 # from datetime import datetime
 # import MySQLdb # pip install mysqlclient
@@ -708,32 +709,62 @@ async def peroleh_nama_2(update: Update, context: ContextTypes.DEFAULT_TYPE, aut
     return 2
 
 @authenticate_user
+async def calculate_distance(lat1, lon1, lat2, lon2):
+    R = 6371000.0  # Radius Bumi dalam meter
+
+    lat1 = math.radians(lat1)
+    lon1 = math.radians(lon1)
+    lat2 = math.radians(lat2)
+    lon2 = math.radians(lon2)
+
+    dlon = lon2 - lon1
+    dlat = lat2 - lat1
+
+    a = math.sin(dlat / 2)**2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2)**2
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+    distance = R * c
+    return distance
+
+# Fungsi async untuk memproses input pengguna
 async def proses_peroleh_nama(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
     dist = update.message.text
 
     if dist.lstrip('-').replace(',', '').replace('.', '').isnumeric():
-        if float(dist) <= 0:
+        radius_meter = float(dist)
+
+        if dist <= 0:
             await update.message.reply_text('Nilai radius harus lebih besar dari 0. Silahkan masukkan kembali nilai radius atau keluar dari proses dengan menggunakan fungsi /batal.')
             context.chat_data['in_conversation'] = False
-            return 2
-        elif float(dist) < 1:
-            await update.message.reply_text(f'Tidak ada item dalam radius {dist} m dari lokasi. Silahkan masukkan kembali nilai radius atau keluar dari proses dengan menggunakan fungsi /batal.')
+            return ConversationHandler.END
+        elif dist < 1:
+            await update.message.reply_text(f'Tidak ada item dalam radius {dist} meter dari lokasi. Silahkan masukkan kembali nilai radius atau keluar dari proses dengan menggunakan fungsi /batal.')
             context.chat_data['in_conversation'] = False
-            return 2
+            return ConversationHandler.END
 
-        table = f'Daftar item dalam radius {dist} m dari lokasi adalah:\n'
-        table += '```\n'
-        table += '| Site_ID_Tenant | Tenant | Alamat |    Koordinat    |\n'
-        table += '|:--------------:|:------:|:------:|:---------------:|\n'
-        table += '|20BAT001        |INDOSAT |        |[-7.88267,112.527](http://maps.google.com/maps?q=-7.88267,112.527) |\n'
-        table += '|20BAT011        |INDOSAT |        |[-7.87102,112.523](http://maps.google.com/maps?q=-7.87102,112.523) |\n'
-        table += '```'
-        await update.message.reply_text(table, parse_mode=ParseMode.MARKDOWN)
-        context.chat_data.clear()
+        # Dapatkan lokasi pengguna dari chat_data
+        user_latitude = context.chat_data['latitude']
+        user_longitude = context.chat_data['longitude']
+
+        # Hitung daftar situs dalam radius
+        sites_in_radius = peroleh_nama_1(user_latitude, user_longitude, dist)
+
+        if sites_in_radius:
+            message = "Situs-situs dalam radius {} meter:\n\n".format(dist)
+            for site in sites_in_radius:
+                message += f"Site ID: {site['site_id']}\n"
+                message += f"Tenant: {site['tenant']}\n"
+                message += f"Alamat: {site['alamat']}\n"
+                message += "----------------\n"
+
+            await update.message.reply_text(message)
+        else:
+            await update.message.reply_text("Tidak ada situs dalam radius yang diberikan.")
+
         context.chat_data['in_conversation'] = False
         return ConversationHandler.END
 
-    await update.message.reply_text('Radius harus berupa bilangan cacah atau pecahan desimal > 0 dalam satuan kilometer. Contoh: 1,2. Silahkan masukkan kembali nilai radius atau keluar dari proses dengan menggunakan fungsi /batal.')
+    await update.message.reply_text('Radius harus berupa bilangan cacah atau pecahan desimal > 0 dalam satuan meter. Contoh: 1000. Silahkan masukkan kembali nilai radius atau keluar dari proses dengan menggunakan fungsi /batal.')
     return 2
 
 @authenticate_user
