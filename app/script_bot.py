@@ -1,7 +1,7 @@
 ###TODO!!!
 # Fungsi input data
-# Fungsi truncate & insert (SQL)
-# Fungsi selective insert (SQL)
+## Fungsi selective insert (SQL)
+# Uji fungsi cari lokasi via text
 
 ### Importing necessary libraries
 import pymysql
@@ -16,6 +16,8 @@ from functools import wraps
 from math import ceil
 import io
 import csv
+import os
+import openpyxl
 from geopy.geocoders import Nominatim
 # from datetime import datetime
 # import MySQLdb # pip install mysqlclient
@@ -30,7 +32,7 @@ from geopy.geocoders import Nominatim
 def create_mysql_connection():
     print('Initializing configuration...')
     config = configparser.ConfigParser()
-    config.read('config.ini')
+    config.read('/app/config.ini')
 
     host = config.get('MYSQL', 'hostname')
     user = config.get('MYSQL', 'username')
@@ -51,12 +53,12 @@ def main():
     ### Initializing Configuration
     print('Initializing configuration...')
     config = configparser.ConfigParser()
-    config.read('config.ini')
+    config.read('/app/config.ini')
 
-    API_ID = config.get('default','api_id')
-    API_HASH = config.get('default','api_hash')
+    # API_ID = config.get('default','api_id')
+    # API_HASH = config.get('default','api_hash')
     BOT_TOKEN = config.get('default','bot_token')
-    session_name = 'sessions/Bot'
+    # session_name = config.get('default','session_dir')
 
     # logging.basicConfig(level=logging.DEBUG)
     app = Application.builder().token(BOT_TOKEN).build()
@@ -205,52 +207,37 @@ def check_conv_status(func):
     return wrapper
 
 # Retrieve data from MySQL
-def get_sites(site_id=None):
+def get_sites_names():
     connection = create_mysql_connection()
     cursor = connection.cursor()
-    query = "SELECT Site_ID_Tenant, Tenant, Alamat, Koordinat_Site FROM site_data"
-    if site_id:
-        query += f" WHERE Site_ID_Tenant = '{site_id}'"
+    query = 'SELECT Site_ID_Tenant FROM site_data'
     cursor.execute(query)
-    sites = []
-
-    for (site_id, tenant, alamat, koordinat) in cursor:
-        sites.append({
-            'site_id': site_id,
-            'tenant': tenant,
-            'alamat': alamat,
-            'koordinat': koordinat
-        })
-
+    site_ids = [Site_ID_Tenant[0] for Site_ID_Tenant in cursor]
     cursor.close()
     connection.close()
+    return site_ids
 
-    return sites
+# Retrieve Sites Datas from MySQL
+def get_sites_data(site_id):
+    connection = create_mysql_connection()
+    cursor = connection.cursor()
+    query = "SELECT Site_ID_Tenant, Tenant, Alamat, Koordinat_Site FROM site_data WHERE Site_ID_Tenant = %s"
+    cursor.execute(query, (site_id))
+    site_data = cursor.fetchone()
+    cursor.close()
+    connection.close()
+    return site_data
 
 # Insert data into MySQL
 def truncate_and_insert_sites(site_datas):
     connection = create_mysql_connection()
     cursor = connection.cursor()
-    query = 'START TRANSACTION;'
-    query += '\nTRUNCATE TABLE site_data;'
-    for row in site_datas:
-        query += "\nINSERT INTO `site_data` (`Site_ID_Tenant`, `Tenant`, `Alamat`, `Koordinat_Site`) VALUES ({0}, {1}, {2}, {3});".format(row['Site_ID_Tenant'], row['Tenant'], row['Alamat'], row['Koordinat Site'], )
-    query += '\nCOMMIT;'
-    cursor.execute(query)
-    sites = []
-
-    for (site_id, tenant, alamat, koordinat) in cursor:
-        sites.append({
-            'site_id': site_id,
-            'tenant': tenant,
-            'alamat': alamat,
-            'koordinat': koordinat
-        })
-
-    cursor.close()
-    connection.close()
-
-    return sites
+    truncate = 'TRUNCATE TABLE `site_data`;'
+    cursor.execute(truncate)
+    insert = "INSERT INTO `site_data` (`Site_ID_Tenant`, `Tenant`, `Alamat`, `Koordinat_Site`) VALUES (%s, %s, %s, %s);"
+    cursor.executemany(insert, [list(dictionary.values()) for dictionary in site_datas])
+    connection.commit()
+    return
 
 ### Main Menu
 @authenticate_user
@@ -317,11 +304,19 @@ async def input_satuan_csv(update: Update, context: ContextTypes.DEFAULT_TYPE, a
 
 @authenticate_admin
 async def input_pangkas_xlsx(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
-    file = await context.bot.get_file(update.message.document.file_id)
-    buffer = io.BytesIO()
-    await file.download_to_memory(out=buffer)
-    file_size = len(buffer.getvalue())
-    await update.message.reply_text(f"The .xlsx file size is: {file_size} bytes")
+    path = os.environ['APP_TMP_DATA'] + '/input.xlsx'
+    await (await context.bot.get_file(update.message.document.file_id)).download_to_drive(custom_path=path)
+    output = []
+    wb =  openpyxl.load_workbook(path)
+    ws = wb.active
+    key = [ws.cell(1, col).value for col in range(1, 5)]
+
+    for row in range(2, ws.max_row + 1):
+        output.append({key[col - 1]: ws.cell(row, col).value for col in range(1, 5)})
+        output[-1]['Alamat'] = cari_alamat(output[-1]['Koordinat Site'])
+
+    truncate_and_insert_sites(output)
+    await update.message.reply_text(f"Input data berhasil.")
     context.chat_data['in_conversation'] = False
     return ConversationHandler.END
 
@@ -332,27 +327,32 @@ async def input_pangkas_csv(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     await file.download_to_memory(out=buffer)
     file_size = len(buffer.getvalue())
     output = []
-    geolocator = Nominatim(user_agent="Geocoder")
     with io.TextIOWrapper(io.BytesIO(buffer.getvalue())) as csv_file:
         csv_reader = csv.DictReader(csv_file)
-        for row in csv_reader:
-            ongoing = True
-            while ongoing:
-                try:
-                    location = geolocator.reverse(row['Koordinat Site'])
-                    ongoing = False
-                    break
-                except TimeoutError:
-                    print('Timed out. Retrying...')
-                    pass
 
-            print(location.address)
-            row['Alamat'] = location.address
+        for row in csv_reader:
+            row['Alamat'] = cari_alamat(row['Koordinat Site'])
             output.append(row)
-    print(output)
-    await update.message.reply_text(f"The .xlsx file size is: {file_size} bytes")
+
+    truncate_and_insert_sites(output)
+    await update.message.reply_text(f"Input data berhasil.")
     context.chat_data['in_conversation'] = False
     return ConversationHandler.END
+
+def cari_alamat(koordinat):
+    ongoing = True
+    geolocator = Nominatim(user_agent="Geocoder")
+
+    while ongoing:
+        try:
+            location = geolocator.reverse(koordinat)
+            ongoing = False
+            return location.address
+        except TimeoutError:
+            print('Timed out. Retrying...')
+            pass
+
+    return None
 
 ### Tambah User
 @authenticate_admin
@@ -604,17 +604,17 @@ async def peroleh_lokasi(update: Update, context: ContextTypes.DEFAULT_TYPE, aut
     query = update.callback_query
     await context.bot.edit_message_reply_markup(chat_id=query.message.chat_id, message_id=query.message.message_id, reply_markup=None)
     context.chat_data['in_conversation'] = True
-    site_list = get_sites()
+    site_list = get_sites_names()
     context.chat_data['site_list'] = site_list
     keyboard = []
 
     for i in range(ceil(len(site_list)/3)):
-        temp_item = site_list[i * 3]['site_id']
+        temp_item = site_list[i * 3]
         keyboard.append([InlineKeyboardButton(temp_item, callback_data='item_' + temp_item)])
 
         for j in range(1, 3):
             try:
-                temp_item = site_list[i * 3 + j]['site_id']
+                temp_item = site_list[i * 3 + j]
                 keyboard[-1].append(InlineKeyboardButton(temp_item, callback_data='item_' + temp_item))
             except IndexError:
                 break
@@ -632,7 +632,7 @@ async def proses_peroleh_lokasi_text(update: Update, context: ContextTypes.DEFAU
 
         # Cek apakah site dengan Site_ID_Tenant tertentu ada di database
         try:
-            site = next(item for item in context.chat_data['site_list'] if item['site_id'] == text.upper())
+            site = get_sites_data(next(item for item in context.chat_data['site_list'] if item == text.upper()))
             await kirim_data_item(update, context, [False, False], site)
             context.chat_data['in_conversation'] = False
             return ConversationHandler.END
@@ -650,35 +650,13 @@ async def proses_peroleh_lokasi_button(update: Update, context: ContextTypes.DEF
 
     # Cek apakah site dengan Site_ID_Tenant tertentu ada di database
     try:
-        site = next(item for item in context.chat_data['site_list'] if item['site_id'] == query.data[5:])
+        site = get_sites_data(next(item for item in context.chat_data['site_list'] if item == query.data[5:]))
         await kirim_data_item(update, context, [False, False], site)
         context.chat_data['in_conversation'] = False
         return ConversationHandler.END
     except StopIteration:
         await context.bot.send_message(chat_id=query.message.chat_id, text='Site tidak ditemukan. Silahkan masukkan atau pilih kembali nama site atau keluar dari proses dengan menggunakan fungsi /batal.')
         return 1
-
-# # Fungsi untuk mendapatkan site berdasarkan Site_ID_Tenant
-# def get_site_by_id(site_id):
-#     connection = create_mysql_connection()
-#     cursor = connection.cursor()
-#
-#     query = "SELECT Site_ID_Tenant, Tenant, Alamat, Koordinat_Site FROM site_data WHERE Site_ID_Tenant = %s"
-#     cursor.execute(query, (site_id,))
-#     site = cursor.fetchone()
-#
-#     cursor.close()
-#     connection.close()
-#
-#     if site:
-#         return {
-#             'site_id': site[0],
-#             'tenant': site[1],
-#             'alamat': site[2],
-#             'koordinat': site[3]
-#         }
-#     else:
-#         return None
 
 # Fungsi untuk memparse koordinat
 def parse_coordinates(coordinates):
@@ -697,7 +675,7 @@ async def peroleh_lokasi_func(update: Update, context: ContextTypes.DEFAULT_TYPE
         if len(argument) == 8 and argument.isalnum():
 
             # Cek apakah site dengan Site_ID_Tenant tertentu ada di database
-            site = get_sites(text.upper())
+            site = get_sites_data(text.upper())
 
             if site:
                 await kirim_data_item(update, context, [False, False], site[0])
@@ -826,10 +804,10 @@ async def get_token_process(update: Update, context: ContextTypes.DEFAULT_TYPE, 
 
 @authenticate_user
 async def kirim_data_item(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status, data):
-    koordinat = data['koordinat'].split(',')
-    text = 'Site\_ID\_Tenant: {}\n'.format(data['site_id'])
-    text += 'Tenant: {}\n'.format(data['tenant'])
-    text += 'Alamat: {}\n'.format(data['alamat'])
+    koordinat = data[3].split(',')
+    text = 'Site\_ID\_Tenant: {}\n'.format(data[0])
+    text += 'Tenant: {}\n'.format(data[1])
+    text += 'Alamat: {}\n'.format(data[2])
     text += 'Koordinat Site: [{0},{1}](http://maps.google.com/maps?q={0},{1})\n'.format(koordinat[0], koordinat[1])
     query = update.callback_query
 
