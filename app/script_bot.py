@@ -755,7 +755,6 @@ async def proses_peroleh_nama(update: Update, context: ContextTypes.DEFAULT_TYPE
                 message += f"Site ID: {site['site_id']}\n"
                 message += f"Tenant: {site['tenant']}\n"
                 message += f"Alamat: {site['alamat']}\n"
-                message += "----------------\n"
 
             await update.message.reply_text(message)
         else:
