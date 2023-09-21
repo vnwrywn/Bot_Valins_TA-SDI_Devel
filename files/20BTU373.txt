@@ -1,0 +1,4 @@
+Site_ID_Tenant: 20BTU373
+Tenant: INDOSAT
+Alamat: Toko Septu Kulit, Jalan Langsep, Ampeldento, Kabupaten Malang, Jawa Timur, Jawa, 65152, Indonesia
+Koordinat Site: -7.90444,112.59537

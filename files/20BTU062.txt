@@ -1,0 +1,4 @@
+Site_ID_Tenant: 20BTU062
+Tenant: INDOSAT
+Alamat: Ngadilangkung, Kabupaten Malang, Jawa Timur, Jawa, 65171, Indonesia
+Koordinat Site: -8.10081,112.581

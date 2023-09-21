@@ -1,0 +1,4 @@
+Site_ID_Tenant: 20BTU144
+Tenant: INDOSAT
+Alamat: Kedungsalam, Kabupaten Malang, Jawa Timur, Jawa, Indonesia
+Koordinat Site: -8.32479,112.454

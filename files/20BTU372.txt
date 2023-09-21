@@ -1,0 +1,4 @@
+Site_ID_Tenant: 20BTU372
+Tenant: INDOSAT
+Alamat: Tirtomoyo, Kabupaten Malang, Jawa Timur, Jawa, 65102, Indonesia
+Koordinat Site: -7.93996,112.67447

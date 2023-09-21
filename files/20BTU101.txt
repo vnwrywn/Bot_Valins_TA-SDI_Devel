@@ -1,0 +1,4 @@
+Site_ID_Tenant: 20BTU101
+Tenant: INDOSAT
+Alamat: Pandesari, Kabupaten Malang, Jawa Timur, Jawa, 65912, Indonesia
+Koordinat Site: -7.86081,112.486

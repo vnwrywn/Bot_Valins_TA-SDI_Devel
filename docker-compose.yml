@@ -21,6 +21,8 @@ services:
       - mysql_server
     networks:
       - bot_telegram_devel
+    volumes:
+      - ./files:/files
 
 networks:
   bot_telegram_devel:

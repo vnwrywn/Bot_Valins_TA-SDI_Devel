@@ -1,0 +1,4 @@
+Site_ID_Tenant: 20BAT003
+Tenant: INDOSAT
+Alamat: Ngaglik, Kota Batu, Jawa Timur, Jawa, 65311, Indonesia
+Koordinat Site: -7.87443,112.507

@@ -1,0 +1,4 @@
+Site_ID_Tenant: 20BAT030
+Tenant: INDOSAT
+Alamat: Bulukerto, Kota Batu, Jawa Timur, Jawa, 65337, Indonesia
+Koordinat Site: -7.834441,112.52844

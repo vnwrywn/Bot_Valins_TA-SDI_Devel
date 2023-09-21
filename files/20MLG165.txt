@@ -1,0 +1,4 @@
+Site_ID_Tenant: 20MLG165
+Tenant: INDOSAT
+Alamat: RW 05 Kel. Kedungkandang, Buring, Kota Malang, Jawa Timur, Jawa, 65138, Indonesia
+Koordinat Site: -8.00223,112.65687

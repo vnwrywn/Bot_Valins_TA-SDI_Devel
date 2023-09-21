@@ -1,0 +1,4 @@
+Site_ID_Tenant: 20BTU040
+Tenant: INDOSAT
+Alamat: Jalan Bululawang _ Wajak, Pringu, Kabupaten Malang, Jawa Timur, Jawa, Indonesia
+Koordinat Site: -8.09167,112.684

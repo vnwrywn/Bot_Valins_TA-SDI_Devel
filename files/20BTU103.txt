@@ -1,0 +1,4 @@
+Site_ID_Tenant: 20BTU103
+Tenant: INDOSAT
+Alamat: Kebonagung, Kabupaten Malang, Jawa Timur, Jawa, 65148, Indonesia
+Koordinat Site: -8.023747,112.616677

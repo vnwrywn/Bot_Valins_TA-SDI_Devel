@@ -1,0 +1,4 @@
+Site_ID_Tenant: 20BAT027
+Tenant: INDOSAT
+Alamat: Gadingkulon, Kabupaten Malang, Jawa Timur, Jawa, 65321, Indonesia
+Koordinat Site: -7.91469,112.56043

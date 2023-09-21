@@ -1,0 +1,4 @@
+Site_ID_Tenant: 20BAT001
+Tenant: INDOSAT
+Alamat: Jalan Dewi Sartika Atas, Temas, Kota Batu, Klojen, Jawa Timur, Jawa, 65315, Indonesia
+Koordinat Site: -7.88267,112.527

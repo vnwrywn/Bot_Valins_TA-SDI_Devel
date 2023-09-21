@@ -1,0 +1,4 @@
+Site_ID_Tenant: 20BAT011
+Tenant: INDOSAT
+Alamat: Jalan Jendral Ahmad Yani, Sisir, Kota Batu, Klojen, Jawa Timur, Jawa, 65134, Indonesia
+Koordinat Site: -7.871028,112.523917

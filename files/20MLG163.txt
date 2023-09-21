@@ -1,0 +1,4 @@
+Site_ID_Tenant: 20MLG163
+Tenant: INDOSAT
+Alamat: Tlogomas, Kota Malang, Jawa Timur, Jawa, 65144, Indonesia
+Koordinat Site: -7.93004,112.60899

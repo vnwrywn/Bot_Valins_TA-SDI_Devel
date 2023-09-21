@@ -1,0 +1,4 @@
+Site_ID_Tenant: 20BTU036
+Tenant: INDOSAT
+Alamat: Pagak, Kabupaten Malang, Jawa Timur, Jawa, Indonesia
+Koordinat Site: -8.23167,112.525

@@ -4,24 +4,26 @@
 # Uji fungsi cari lokasi via text
 
 ### Importing necessary libraries
-import pymysql
 import configparser # pip install configparser
+import csv
+from datetime import datetime, timedelta
+from functools import wraps
+from geopy.geocoders import Nominatim
+import haversine as hs
+import io
 # import logging
 import jwt # pip install pyjwt
-from datetime import datetime, timedelta
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, ReplyKeyboardRemove
-from telegram.ext import Application, CommandHandler, ConversationHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
-from telegram.constants import ParseMode
-from functools import wraps
-from math import ceil
-import io
-import csv
+from math import ceil, radians, sin, cos, sqrt, atan2
+# import MySQLdb # pip install mysqlclient
 import os
 import openpyxl
-import math
-from geopy.geocoders import Nominatim
-# from datetime import datetime
-# import MySQLdb # pip install mysqlclient
+import pymysql
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, ReplyKeyboardRemove
+from telegram.constants import ParseMode
+from telegram.ext import Application, CommandHandler, ConversationHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
+import time
+
+SQRTo2 = sqrt(2)
 
 # # Read values for MySQLdb
 # HOSTNAME = config.get('default','hostname')
@@ -31,7 +33,7 @@ from geopy.geocoders import Nominatim
 # Get Telegram bot token from configuration
 
 def create_mysql_connection():
-    print('Initializing configuration...')
+    print('Configuring...', flush = True)
     config = configparser.ConfigParser()
     config.read('/app/config.ini')
 
@@ -52,14 +54,11 @@ def create_mysql_connection():
 # Main Function
 def main():
     ### Initializing Configuration
-    print('Initializing configuration...')
+    print('Initializing configuration...', flush = True)
     config = configparser.ConfigParser()
     config.read('/app/config.ini')
 
-    # API_ID = config.get('default','api_id')
-    # API_HASH = config.get('default','api_hash')
     BOT_TOKEN = config.get('default','bot_token')
-    # session_name = config.get('default','session_dir')
 
     # logging.basicConfig(level=logging.DEBUG)
     app = Application.builder().token(BOT_TOKEN).build()
@@ -118,7 +117,7 @@ def main():
 
     ### Conversation Handler Menu Peroleh File
     peroleh_berkas_handler = ConversationHandler(
-        entry_points=[CallbackQueryHandler(peroleh_berkas, pattern='^opsi_peroleh_file$')],
+        entry_points=[CallbackQueryHandler(peroleh_berkas, pattern='^opsi_peroleh_berkas$')],
         states={
             1: [MessageHandler(filters.TEXT & (~ filters.COMMAND), proses_peroleh_berkas)]
         },
@@ -126,10 +125,10 @@ def main():
     )
 
     ### Conversation Handler Token
-    peroleh_berkas_handler = ConversationHandler(
-        entry_points=[CommandHandler('get_token', get_token)],
+    peroleh_token_handler = ConversationHandler(
+        entry_points=[CommandHandler('peroleh_token', peroleh_token)],
         states={
-            1: [MessageHandler(filters.TEXT & (~ filters.COMMAND), get_token_process)]
+            1: [MessageHandler(filters.TEXT & (~ filters.COMMAND), peroleh_token_process)]
         },
         fallbacks=[CommandHandler('batal', batal)]
     )
@@ -143,10 +142,18 @@ def main():
     app.add_handler(CommandHandler('peroleh_lokasi', peroleh_lokasi_func))
     app.add_handler(peroleh_nama_handler)
     app.add_handler(peroleh_berkas_handler)
+    app.add_handler(peroleh_token_handler)
     app.add_handler(CommandHandler('help', bantuan))
     app.add_handler(CallbackQueryHandler(bantuan, pattern='^opsi_bantuan$'))
-    print('Polling...')
-    app.run_polling(poll_interval=5)
+
+    while True:
+        try:
+            print('Polling...', flush = True)
+            app.run_polling(poll_interval=4)
+        except Exception as e:
+            print(e, flush = True)
+            time.sleep(10)
+            continue
 
 def exclude_commands_filter(update):
     return not update.message.text.startswith('/')
@@ -184,15 +191,15 @@ def is_authenticated(user_id):
     cursor = connection.cursor()
 
     # Check if the user is an admin
-    query_admin = "SELECT is_admin FROM allowed_users WHERE username = %s"
+    query_admin = 'SELECT `is_admin` FROM `allowed_users` WHERE `username` = %s'
     cursor.execute(query_admin, (user_id,))
-    result = cursor.fetchone()[0]
+    result = cursor.fetchone()
     cursor.close()
     connection.close()
 
     if result == None:
         return [False, False]
-    elif result:
+    elif result[0]:
         return [True, True]  # Return True if user is an admin with full access
     else:
         return [True, False]  # Return True if user is an admin with full access
@@ -208,26 +215,58 @@ def check_conv_status(func):
     return wrapper
 
 # Retrieve data from MySQL
-def get_sites_names():
+def peroleh_nama_site():
     connection = create_mysql_connection()
     cursor = connection.cursor()
-    query = 'SELECT Site_ID_Tenant FROM site_data'
+    query = 'SELECT `Site_ID_Tenant` FROM `site_data`'
     cursor.execute(query)
     site_ids = [Site_ID_Tenant[0] for Site_ID_Tenant in cursor]
     cursor.close()
     connection.close()
     return site_ids
 
-# Retrieve Sites Datas from MySQL
-def get_sites_data(site_id):
+def cek_nama_site(site_id):
     connection = create_mysql_connection()
     cursor = connection.cursor()
-    query = "SELECT Site_ID_Tenant, Tenant, Alamat, Koordinat_Site FROM site_data WHERE Site_ID_Tenant = %s"
+    query = 'SELECT 1 FROM `site_data` WHERE `Site_ID_Tenant` = %s'
+    cursor.execute(query, (site_id))
+    exists = cursor.fetchone()
+    cursor.close()
+    connection.close()
+    return exists
+
+# Retrieve Sites Datas from MySQL
+def peroleh_data_site(site_id):
+    connection = create_mysql_connection()
+    cursor = connection.cursor()
+    query = 'SELECT `Site_ID_Tenant`, `Tenant`, `Alamat`, `Latitude`, `Longitude` FROM `site_data` WHERE `Site_ID_Tenant` = %s'
     cursor.execute(query, (site_id))
     site_data = cursor.fetchone()
     cursor.close()
     connection.close()
     return site_data
+
+# Retrieve datas using radius and location
+def peroleh_dari_radius(latitude, longitude, radius):
+    connection = create_mysql_connection()
+    cursor = connection.cursor()
+    coordinates = (latitude, longitude)
+    sqrt_rds = radius * SQRTo2
+    max_lat = hs.inverse_haversine(coordinates, sqrt_rds, hs.Direction.NORTH, unit=hs.Unit.METERS)[0]
+    max_lon = hs.inverse_haversine(coordinates, sqrt_rds, hs.Direction.EAST, unit=hs.Unit.METERS)[1]
+    min_lat = hs.inverse_haversine(coordinates, sqrt_rds, hs.Direction.SOUTH, unit=hs.Unit.METERS)[0]
+    min_lon = hs.inverse_haversine(coordinates, sqrt_rds, hs.Direction.WEST, unit=hs.Unit.METERS)[1]
+    query = 'SELECT `Site_ID_Tenant`, `Tenant`, `Alamat`, `Latitude`, `Longitude` FROM `site_data` WHERE `Latitude` BETWEEN %s AND %s AND `Longitude` BETWEEN %s AND %s'
+    cursor.execute(query, (min_lat, max_lat, min_lon, max_lon))
+    square_res = cursor.fetchall()
+    results = []
+
+    for item in square_res:
+        dist = hs.haversine((latitude, longitude), (item[3], item[4]), unit=hs.Unit.METERS)
+        if dist <= radius:
+            results.append(item)
+    connection.close()
+    return results
 
 # Insert data into MySQL
 def truncate_and_insert_sites(site_datas):
@@ -235,9 +274,19 @@ def truncate_and_insert_sites(site_datas):
     cursor = connection.cursor()
     truncate = 'TRUNCATE TABLE `site_data`;'
     cursor.execute(truncate)
-    insert = "INSERT INTO `site_data` (`Site_ID_Tenant`, `Tenant`, `Alamat`, `Koordinat_Site`) VALUES (%s, %s, %s, %s);"
+    insert = 'INSERT INTO `site_data` (`Site_ID_Tenant`, `Tenant`, `Alamat`, `Latitude`, `Longitude`) VALUES (%s, %s, %s, %s, %s);'
     cursor.executemany(insert, [list(dictionary.values()) for dictionary in site_datas])
     connection.commit()
+    connection.close()
+    return
+
+def insert_sites(site_datas):
+    connection = create_mysql_connection()
+    cursor = connection.cursor()
+    insert = 'INSERT INTO `site_data` (`Site_ID_Tenant`, `Tenant`, `Alamat`, `Latitude`, `Longitude`) VALUES (%s, %s, %s, %s, %s);'
+    cursor.executemany(insert, [list(dictionary.values()) for dictionary in site_datas])
+    connection.commit()
+    connection.close()
     return
 
 ### Main Menu
@@ -247,7 +296,7 @@ async def main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_sta
     keyboard = [
         [InlineKeyboardButton('Peroleh Lokasi Item', callback_data='opsi_peroleh_lokasi')],
         [InlineKeyboardButton('Peroleh Daftar Item Terdekat', callback_data='opsi_peroleh_nama')],
-        [InlineKeyboardButton('Peroleh File Set', callback_data='opsi_peroleh_file')],
+        [InlineKeyboardButton('Peroleh File Site', callback_data='opsi_peroleh_berkas')],
         [InlineKeyboardButton('Bantuan', callback_data='opsi_bantuan')]
     ]
 
@@ -291,17 +340,54 @@ async def input_data(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_st
 
 @authenticate_admin
 async def input_satuan_xlsx(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
-    file = context.bot.get_file(update.message.document.file_id)
-    await update.message.reply_text('Input satuan berhasil.')
-    context.chat_data['in_conversation'] = False
-    return ConversationHandler.END
+    path = os.environ['APP_TMP_DATA'] + '/input.xlsx'
+    await (await context.bot.get_file(update.message.document.file_id)).download_to_drive(custom_path=path)
+    output = []
+    wb =  openpyxl.load_workbook(path)
+    ws = wb.active
+    key = [ws.cell(1, col + 1).value for col in range(4)]
+    count = 0
+
+    for row in range(2, ws.max_row + 1):
+        if cek_nama_site(ws.cell(row, 1).value):
+            continue
+
+        else:
+            output.append({key[col]: ws.cell(row, col + 1).value for col in range(4)})
+            output[-1]['Latitude'], output[-1]['Longitude'] = (float(value) for value in output[-1].pop('Koordinat Site').split(','))
+            output[-1]['Alamat'] = cari_alamat((output[-1]['Latitude'], output[-1]['Longitude']))
+            count += 1
+
+    insert_sites(output)
+    await update.message.reply_text(f'Input satuan {count} baris berhasil.')
+    return akhiri_percakapan(context)
 
 @authenticate_admin
 async def input_satuan_csv(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
-    file = context.bot.get_file(update.message.document.file_id)
-    await update.message.reply_text('Input satuan berhasil.')
-    context.chat_data['in_conversation'] = False
-    return ConversationHandler.END
+    file = await context.bot.get_file(update.message.document.file_id)
+    buffer = io.BytesIO()
+    await file.download_to_memory(out=buffer)
+    file_size = len(buffer.getvalue())
+    output = []
+    site_list = peroleh_nama_site()
+    count = 0
+
+    with io.TextIOWrapper(io.BytesIO(buffer.getvalue())) as csv_file:
+        csv_reader = csv.DictReader(csv_file)
+
+        for row in csv_reader:
+            if cek_nama_site(row['Site_ID_Tenant']):
+                continue
+
+            else:
+                row['Latitude'], row['Longitude'] = (float(value) for value in output[-1].pop('Koordinat Site').split(','))
+                row['Alamat'] = cari_alamat((row['Latitude'], row['Longitude']))
+                output.append(row)
+                count += 1
+
+    truncate_and_insert_sites(output)
+    await update.message.reply_text(f'Input satuan {count} baris berhasil.')
+    return akhiri_percakapan(context)
 
 @authenticate_admin
 async def input_pangkas_xlsx(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
@@ -310,16 +396,18 @@ async def input_pangkas_xlsx(update: Update, context: ContextTypes.DEFAULT_TYPE,
     output = []
     wb =  openpyxl.load_workbook(path)
     ws = wb.active
-    key = [ws.cell(1, col).value for col in range(1, 5)]
+    key = [ws.cell(1, col + 1).value for col in range(4)]
+    count = 0
 
     for row in range(2, ws.max_row + 1):
-        output.append({key[col - 1]: ws.cell(row, col).value for col in range(1, 5)})
-        output[-1]['Alamat'] = cari_alamat(output[-1]['Koordinat Site'])
+        output.append({key[col]: ws.cell(row, col + 1).value for col in range(4)})
+        output[-1]['Latitude'], output[-1]['Longitude'] = (float(value) for value in output[-1].pop('Koordinat Site').split(','))
+        output[-1]['Alamat'] = cari_alamat((output[-1]['Latitude'], output[-1]['Longitude']))
+        count += 1
 
     truncate_and_insert_sites(output)
-    await update.message.reply_text(f"Input data berhasil.")
-    context.chat_data['in_conversation'] = False
-    return ConversationHandler.END
+    await update.message.reply_text(f'Input pangkas {count} baris berhasil.')
+    return akhiri_percakapan(context)
 
 @authenticate_admin
 async def input_pangkas_csv(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
@@ -328,29 +416,35 @@ async def input_pangkas_csv(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     await file.download_to_memory(out=buffer)
     file_size = len(buffer.getvalue())
     output = []
+    count = 0
+
     with io.TextIOWrapper(io.BytesIO(buffer.getvalue())) as csv_file:
         csv_reader = csv.DictReader(csv_file)
 
         for row in csv_reader:
-            row['Alamat'] = cari_alamat(row['Koordinat Site'])
+            row['Latitude'], row['Longitude'] = (float(value) for value in output[-1].pop('Koordinat Site').split(','))
+            row['Alamat'] = cari_alamat((row['Latitude'], row['Longitude']))
             output.append(row)
+            count += 1
 
     truncate_and_insert_sites(output)
-    await update.message.reply_text(f"Input data berhasil.")
-    context.chat_data['in_conversation'] = False
-    return ConversationHandler.END
+    await update.message.reply_text(f'Input pangkas {count} baris berhasil.')
+    return akhiri_percakapan(context)
 
 def cari_alamat(koordinat):
     ongoing = True
-    geolocator = Nominatim(user_agent="Geocoder")
+    geolocator = Nominatim(user_agent='Geocoder')
 
     while ongoing:
+        sleeptime = 1
         try:
             location = geolocator.reverse(koordinat)
             ongoing = False
             return location.address
-        except TimeoutError:
-            print('Timed out. Retrying...')
+        except Exception as e:
+            print('Geocoder error.', e, 'Retrying', flush = True)
+            sleeptime += 1
+            time.sleep(sleeptime)
             pass
 
     return None
@@ -378,58 +472,54 @@ async def input_tambah_user(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     await context.bot.edit_message_reply_markup(chat_id=query.message.chat_id, message_id=query.message.message_id, reply_markup=None)
 
     if button_pressed == 'tambah_reguler':
-        await context.bot.send_message(chat_id=query.message.chat_id, text='Silahkan masukkan token. Untuk membuat token, calon user reguler tersangkut harus menjalankan perintah /get_token dan memberikan nama lengkapnya dalam tahapan yang dijalankan.')
+        await context.bot.send_message(chat_id=query.message.chat_id, text='Silahkan masukkan token. Untuk membuat token, calon user reguler tersangkut harus menjalankan perintah /peroleh_token dan memberikan nama lengkapnya dalam tahapan yang dijalankan.')
         return 2
 
-    await context.bot.send_message(chat_id=query.message.chat_id, text='Silahkan masukkan ID pengguna. Untuk membuat token, calon user admin tersangkut harus menjalankan perintah /get_token dan memberikan nama lengkapnya dalam tahapan yang dijalankan.')
+    await context.bot.send_message(chat_id=query.message.chat_id, text='Silahkan masukkan ID pengguna. Untuk membuat token, calon user admin tersangkut harus menjalankan perintah /peroleh_token dan memberikan nama lengkapnya dalam tahapan yang dijalankan.')
     return 3
 
 @authenticate_admin
 async def proses_tambah_user(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
     token = update.message.text
-    decoded_token = jwt.decode(token, "secret", algorithms=["HS256"])
+    decoded_token = jwt.decode(token, 'secret', algorithms=['HS256'])
     userid = decoded_token['user_id']
     nama = decoded_token['nama']
 
      # Cek apakah user dengan user_id tertentu sudah ada di database
     if user_exists(userid):
         await update.message.reply_text('User ID yang dimasukkan telah terdaftar. Proses tambah user dibatalkan.')
-        context.chat_data['in_conversation'] = False
-        return ConversationHandler.END
+        return akhiri_percakapan(context)
 
     # Jika user belum terdaftar, tambahkan user baru ke database
     add_user(userid, nama)
 
     await update.message.reply_text(f'Berhasil menambahkan user berikut.\nUser ID: {userid}\nNama: {nama}')
-    context.chat_data['in_conversation'] = False
-    return ConversationHandler.END
+    return akhiri_percakapan(context)
 
 @authenticate_admin
 async def proses_tambah_admin(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
     token = update.message.text
-    decoded_token = jwt.decode(token, "secret", algorithms=["HS256"])
+    decoded_token = jwt.decode(token, 'secret', algorithms=['HS256'])
     userid = decoded_token['user_id']
     nama = decoded_token['nama']
 
     # Cek apakah admin dengan user_id tertentu sudah ada di database
     if user_exists(userid):
         await update.message.reply_text('User ID yang dimasukkan telah terdaftar. Proses tambah admin dibatalkan.')
-        context.chat_data['in_conversation'] = False
-        return ConversationHandler.END
+        return akhiri_percakapan(context)
 
     # Jika admin belum terdaftar, tambahkan admin baru ke database
     add_admin(userid, nama)
 
     await update.message.reply_text(f'Berhasil menambahkan admin berikut.\nUser ID: {userid}\nNama: {nama}')
-    context.chat_data['in_conversation'] = False
-    return ConversationHandler.END
+    return akhiri_percakapan(context)
 
 # Fungsi untuk cek apakah user dengan user_id tertentu sudah ada di database
 def user_exists(user_id):
     connection = create_mysql_connection()
     cursor = connection.cursor()
 
-    query = "SELECT * FROM allowed_users WHERE username = %s"
+    query = 'SELECT 1 FROM `allowed_users` WHERE `username` = %s'
     cursor.execute(query, (user_id,))
     result = cursor.fetchone()
 
@@ -438,26 +528,12 @@ def user_exists(user_id):
 
     return result is not None
 
-# # Fungsi untuk cek apakah admin dengan user_id tertentu sudah ada di database
-# def admin_exists(user_id):
-#     connection = create_mysql_connection()
-#     cursor = connection.cursor()
-#
-#     query = "SELECT * FROM allowed_users WHERE username = %s AND is_admin = 1"
-#     cursor.execute(query, (user_id,))
-#     result = cursor.fetchone()
-#
-#     cursor.close()
-#     connection.close()
-#
-#     return result is not None
-#
 # Fungsi untuk menambahkan user baru ke database
 def add_user(user_id, nama):
      connection = create_mysql_connection()
      cursor = connection.cursor()
 
-     query = "INSERT INTO allowed_users (username, nama, is_admin) VALUES (%s, %s, 0)"
+     query = 'INSERT INTO `allowed_users` (`username`, `nama`, `is_admin`) VALUES (%s, %s, 0)'
      cursor.execute(query, (user_id, nama))
 
      connection.commit()
@@ -469,7 +545,7 @@ def add_admin(user_id, nama):
     connection = create_mysql_connection()
     cursor = connection.cursor()
 
-    query = "INSERT INTO allowed_users (username, nama, is_admin) VALUES (%s, %s, 1)"
+    query = 'INSERT INTO `allowed_users` (`username`, `nama`, `is_admin`) VALUES (%s, %s, 1)'
     cursor.execute(query, (user_id, nama))
 
     connection.commit()
@@ -484,7 +560,7 @@ def delete_user(user_id):
     cursor = connection.cursor()
 
     # Implementasi penghapusan user dari database
-    delete_query = "DELETE FROM allowed_users WHERE username = %s"
+    delete_query = 'DELETE FROM allowed_users WHERE username = %s'
     cursor.execute(delete_query, (user_id,))
     connection.commit()
 
@@ -497,7 +573,7 @@ def is_last_admin(user_id):
     cursor = connection.cursor()
 
     # Implementasi pengecekan apakah user merupakan admin terakhir atau bukan
-    admin_count_query = "SELECT COUNT(*) FROM allowed_users WHERE is_admin = 1"
+    admin_count_query = 'SELECT COUNT(*) FROM `allowed_users` WHERE `is_admin` = 1'
     cursor.execute(admin_count_query)
     admin_count = cursor.fetchone()[0]
 
@@ -564,8 +640,7 @@ async def proses_hapus_user(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     elif button_pressed == 'konfirmasi_hapus_tidak':
         await context.bot.send_message(chat_id=query.message.chat_id, text='Proses penghapusan user dibatalkan.')
 
-    context.chat_data['in_conversation'] = False
-    return ConversationHandler.END
+    return akhiri_percakapan(context)
 
 @authenticate_admin
 async def konfirmasi_hapus_user(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
@@ -595,8 +670,7 @@ async def proses_hapus_user(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         reply = 'Proses penghapusan user dibatalkan.'
 
     await context.bot.send_message(chat_id=query.message.chat_id, text=reply)
-    context.chat_data['in_conversation'] = False
-    return ConversationHandler.END
+    return akhiri_percakapan(context)
 
 ### Peroleh Lokasi
 @authenticate_user
@@ -605,7 +679,7 @@ async def peroleh_lokasi(update: Update, context: ContextTypes.DEFAULT_TYPE, aut
     query = update.callback_query
     await context.bot.edit_message_reply_markup(chat_id=query.message.chat_id, message_id=query.message.message_id, reply_markup=None)
     context.chat_data['in_conversation'] = True
-    site_list = get_sites_names()
+    site_list = peroleh_nama_site()
     context.chat_data['site_list'] = site_list
     keyboard = []
 
@@ -633,10 +707,9 @@ async def proses_peroleh_lokasi_text(update: Update, context: ContextTypes.DEFAU
 
         # Cek apakah site dengan Site_ID_Tenant tertentu ada di database
         try:
-            site = get_sites_data(next(item for item in context.chat_data['site_list'] if item == text.upper()))
+            site = peroleh_data_site(next(item for item in context.chat_data['site_list'] if item == text.upper()))
             await kirim_data_item(update, context, [False, False], site)
-            context.chat_data['in_conversation'] = False
-            return ConversationHandler.END
+            return akhiri_percakapan(context)
         except StopIteration:
             await update.message.reply_text('Site tidak ditemukan. Silahkan masukkan atau pilih kembali nama site atau keluar dari proses dengan menggunakan fungsi /batal.')
             return 1
@@ -651,10 +724,9 @@ async def proses_peroleh_lokasi_button(update: Update, context: ContextTypes.DEF
 
     # Cek apakah site dengan Site_ID_Tenant tertentu ada di database
     try:
-        site = get_sites_data(next(item for item in context.chat_data['site_list'] if item == query.data[5:]))
+        site = peroleh_data_site(next(item for item in context.chat_data['site_list'] if item == query.data[5:]))
         await kirim_data_item(update, context, [False, False], site)
-        context.chat_data['in_conversation'] = False
-        return ConversationHandler.END
+        return akhiri_percakapan(context)
     except StopIteration:
         await context.bot.send_message(chat_id=query.message.chat_id, text='Site tidak ditemukan. Silahkan masukkan atau pilih kembali nama site atau keluar dari proses dengan menggunakan fungsi /batal.')
         return 1
@@ -676,7 +748,7 @@ async def peroleh_lokasi_func(update: Update, context: ContextTypes.DEFAULT_TYPE
         if len(argument) == 8 and argument.isalnum():
 
             # Cek apakah site dengan Site_ID_Tenant tertentu ada di database
-            site = get_sites_data(text.upper())
+            site = peroleh_data_site(text.upper())
 
             if site:
                 await kirim_data_item(update, context, [False, False], site[0])
@@ -708,60 +780,32 @@ async def peroleh_nama_2(update: Update, context: ContextTypes.DEFAULT_TYPE, aut
     await update.message.reply_text('Kirimkan radius pencarian dalam satuan meter.')
     return 2
 
-@authenticate_user
-async def calculate_distance(lat1, lon1, lat2, lon2):
-    R = 6371000.0  # Radius Bumi dalam meter
-
-    lat1 = math.radians(lat1)
-    lon1 = math.radians(lon1)
-    lat2 = math.radians(lat2)
-    lon2 = math.radians(lon2)
-
-    dlon = lon2 - lon1
-    dlat = lat2 - lat1
-
-    a = math.sin(dlat / 2)**2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2)**2
-    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-
-    distance = R * c
-    return distance
-
 # Fungsi async untuk memproses input pengguna
 async def proses_peroleh_nama(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
     dist = update.message.text
 
     if dist.lstrip('-').replace(',', '').replace('.', '').isnumeric():
-        radius_meter = float(dist)
+        radius_meter = float(dist.replace(',', '.'))
 
-        if dist <= 0:
+        if radius_meter <= 0:
             await update.message.reply_text('Nilai radius harus lebih besar dari 0. Silahkan masukkan kembali nilai radius atau keluar dari proses dengan menggunakan fungsi /batal.')
-            context.chat_data['in_conversation'] = False
-            return ConversationHandler.END
-        elif dist < 1:
-            await update.message.reply_text(f'Tidak ada item dalam radius {dist} meter dari lokasi. Silahkan masukkan kembali nilai radius atau keluar dari proses dengan menggunakan fungsi /batal.')
-            context.chat_data['in_conversation'] = False
-            return ConversationHandler.END
+            return 2
 
-        # Dapatkan lokasi pengguna dari chat_data
-        user_latitude = context.chat_data['latitude']
-        user_longitude = context.chat_data['longitude']
-
-        # Hitung daftar situs dalam radius
-        sites_in_radius = peroleh_nama_1(user_latitude, user_longitude, dist)
-
-        if sites_in_radius:
-            message = "Situs-situs dalam radius {} meter:\n\n".format(dist)
-            for site in sites_in_radius:
-                message += f"Site ID: {site['site_id']}\n"
-                message += f"Tenant: {site['tenant']}\n"
-                message += f"Alamat: {site['alamat']}\n"
-
-            await update.message.reply_text(message)
         else:
-            await update.message.reply_text("Tidak ada situs dalam radius yang diberikan.")
+            # Dapatkan lokasi pengguna dari chat_data
+            user_latitude = float(context.chat_data['latitude'])
+            user_longitude = float(context.chat_data['longitude'])
 
-        context.chat_data['in_conversation'] = False
-        return ConversationHandler.END
+            # Hitung daftar situs dalam radius
+            sites_in_radius = peroleh_dari_radius(user_latitude, user_longitude, radius_meter)
+
+            if sites_in_radius:
+                for site in sites_in_radius:
+                    await kirim_data_item(update, context, [False, False], site)
+                return akhiri_percakapan(context)
+            else:
+                await update.message.reply_text(f'Tidak ada item dalam radius {radius_meter} meter dari lokasi. Silahkan masukkan kembali nilai radius atau keluar dari proses dengan menggunakan fungsi /batal.')
+                return 2
 
     await update.message.reply_text('Radius harus berupa bilangan cacah atau pecahan desimal > 0 dalam satuan meter. Contoh: 1000. Silahkan masukkan kembali nilai radius atau keluar dari proses dengan menggunakan fungsi /batal.')
     return 2
@@ -772,27 +816,38 @@ async def peroleh_berkas(update: Update, context: ContextTypes.DEFAULT_TYPE, aut
     query = update.callback_query
     context.chat_data['in_conversation'] = True
     await context.bot.edit_message_reply_markup(chat_id=query.message.chat_id, message_id=query.message.message_id, reply_markup=None)
-    await context.bot.send_message(chat_id=query.message.chat_id, text='Masukkan nama berkas.')
+    await context.bot.send_message(chat_id=query.message.chat_id, text='Masukkan nama site.')
     return 1
 
 @authenticate_user
 async def proses_peroleh_berkas(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
-    text = update.message.text
-    await update.message.reply_text('[PLACEHOLDER BERKAS]')
-    context.chat_data['in_conversation'] = False
-    return ConversationHandler.END
+    site_name = update.message.text
+    file_path = f'/files/{site_name}.txt'
+
+    if os.path.exists(file_path):
+        chat_id = update.effective_chat.id
+        await context.bot.send_document(chat_id=chat_id, document=open(file_path, 'rb'))
+    else:
+        await update.message.reply_text("Berkas tidak ditemukan. Silahkan masukkan kembali nama berkas atau keluar dari proses dengan menggunakan fungsi /batal.")
+        return 1
+
+    return akhiri_percakapan(context)
 
 async def batal(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
     if context.chat_data['in_conversation']:
-        context.chat_data['in_conversation'] = False
         await update.message.reply_text('Proses telah dibatalkan.')
-        return ConversationHandler.END
+        return akhiri_percakapan(context)
 
     await update.message.reply_text('Tidak ada proses yang sedang berjalan.')
+
+def akhiri_percakapan(context: ContextTypes.DEFAULT_TYPE):
+    context.chat_data['in_conversation'] = False
+    return ConversationHandler.END
 
 @authenticate_user
 async def bantuan(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
     query = update.callback_query
+    await context.bot.edit_message_reply_markup(chat_id=query.message.chat_id, message_id=query.message.message_id, reply_markup=None)
     await context.bot.send_message(chat_id=query.message.chat_id, text='''Fungsi Dasar
 /start
 Memulai percakapan. Percakapan tidak dapat dimulai apabila sebuah proses sedang berjalan. Lihat /batal.
@@ -800,7 +855,7 @@ Memulai percakapan. Percakapan tidak dapat dimulai apabila sebuah proses sedang 
 Mengakhiri proses. Mengakhiri proses yang sedang berjalan dan membuka kemungkinan untuk memulai kembali percakapan.
 /bantuan
 Melihat bantuan penggunaan (teks ini).
-/get_token
+/peroleh_token
 Peroleh token untuk keperluan autentikasi. Penjalanan fungsi ini tidak memerlukan autentikasi.
 
 Arahan Menu
@@ -808,15 +863,15 @@ Menu Utama: Berisi berbagai pilihan untuk membuka submenu.
 Input Data: Menjalankan proses untuk memasukkan data ke dalam basis data.
 Peroleh Lokasi Item: Menjalankan proses untuk memperoleh lokasi item berdasarkan nama item.
 Peroleh Nama Item: Menjalankan proses untuk memperoleh nama-nama item berdasarkan lokasi.
-Peroleh File Set: Menjalankan proses untuk memperoleh berkas-berkas berdasarkan nama.
+Peroleh File Site: Menjalankan proses untuk memperoleh berkas-berkas berdasarkan nama.
 
 Apabila memerlukan bantuan tambahan, anda dapat menghubungi helpdesk pada...''')
 
-async def get_token(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
-    await update.message.reply_text(f"Mohon kirimkan nama lengkap anda.")
+async def peroleh_token(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
+    await update.message.reply_text(f'Mohon kirimkan nama lengkap anda.')
     return 1
 
-async def get_token_process(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
+async def peroleh_token_process(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
     nama = update.message.text.capitalize()
     user_id = str(update.message.from_user.id)
     expiration_time = datetime.utcnow() + timedelta(hours=1)
@@ -829,170 +884,23 @@ async def get_token_process(update: Update, context: ContextTypes.DEFAULT_TYPE, 
 
     token = jwt.encode(payload, 'secret', algorithm='HS256')
     await update.message.reply_text(f'Token anda adalah: {token}')
-    context.chat_data['in_conversation'] = False
-    return ConversationHandler.END
+    return akhiri_percakapan(context)
 
 @authenticate_user
 async def kirim_data_item(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status, data):
-    koordinat = data[3].split(',')
     text = 'Site\_ID\_Tenant: {}\n'.format(data[0])
     text += 'Tenant: {}\n'.format(data[1])
     text += 'Alamat: {}\n'.format(data[2])
-    text += 'Koordinat Site: [{0},{1}](http://maps.google.com/maps?q={0},{1})\n'.format(koordinat[0], koordinat[1])
+    text += 'Koordinat Site: [{0},{1}](http://maps.google.com/maps?q={0},{1})\n'.format(data[3], data[4])
     query = update.callback_query
 
     if query:
         await context.bot.send_message(chat_id=query.message.chat_id, text=text, parse_mode=ParseMode.MARKDOWN)
-        await context.bot.send_location(chat_id=query.message.chat_id, latitude=koordinat[0], longitude=koordinat[1])
+        await context.bot.send_location(chat_id=query.message.chat_id, latitude=data[3], longitude=data[4])
     else:
         await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
-        await update.message.reply_location(koordinat[0], koordinat[1])
+        await update.message.reply_location(data[3], data[4])
 
-# # Function that creates a message containing a list of all the oders
-# def create_message_select_query(ans):
-#     text = ''
-#     for i in ans:
-#         id = i[0]
-#         product = i[1]
-#         quantity = i[2]
-#         creation_date = i[3]
-#         text += '<b>'+ str(id) +'</b> | ' + '<b>'+ str(product) +'</b> | ' + '<b>'+ str(quantity)+'</b> | ' + '<b>'+ str(creation_date)+'</b>\n'
-#     message = '<b>Received 📖 </b> Information about orders:\n\n'+text
-#     return message
-#
-# ### SELECT COMMAND
-# @client.on(events.NewMessage(pattern='(?i)/select'))
-# async def select(event):
-#     try:
-#         # Get the sender of the message
-#         sender = await event.get_sender()
-#         SENDER = sender.id
-#         # Execute the query and get all (*) the oders
-#         crsr.execute('SELECT * FROM orders')
-#         res = crsr.fetchall() # fetch all the results
-#         # If there is at least 1 row selected, print a message with the list of all the oders
-#         # The message is created using the function defined above
-#         if(res):
-#             text = create_message_select_query(res)
-#             await client.send_message(SENDER, text, parse_mode='html')
-#         # Otherwhise, print a default text
-#         else:
-#             text = 'No orders found inside the database.'
-#             await client.send_message(SENDER, text, parse_mode='html')
-#
-#     except Exception as e:
-#         print(e)
-#         await client.send_message(SENDER, 'Something Wrong happened... Check your code!', parse_mode='html')
-#         return
-#
-#
-#
-# ### UPDATE COMMAND
-# @client.on(events.NewMessage(pattern='(?i)/update'))
-# async def update(event):
-#     try:
-#         # Get the sender
-#         sender = await event.get_sender()
-#         SENDER = sender.id
-#
-#         # Get the text of the user AFTER the /update command and convert it to a list (we are splitting by the SPACE ' ' simbol)
-#         list_of_words = event.message.text.split(' ')
-#         id = int(list_of_words[1]) # second (1) item is the id
-#         new_product = list_of_words[2] # third (2) item is the product
-#         new_quantity = list_of_words[3] # fourth (3) item is the quantity
-#         dt_string = datetime.now().strftime('%d/%m/%Y') # We create the new date
-#
-#         # create the tuple with all the params interted by the user
-#         params = (id, new_product, new_quantity, dt_string, id)
-#
-#         # Create the UPDATE query, we are updating the product with a specific id so we must put the WHERE clause
-#         sql_command='UPDATE orders SET id=%s, product=%s, quantity=%s, LAST_EDIT=%s WHERE id =%s'
-#         crsr.execute(sql_command, params) # Execute the query
-#         conn.commit() # Commit the changes
-#
-#         # If at least 1 row is affected by the query we send a specific message
-#         if crsr.rowcount < 1:
-#             text = 'Order with id {} is not present'.format(id)
-#             await client.send_message(SENDER, text, parse_mode='html')
-#         else:
-#             text = 'Order with id {} correctly updated'.format(id)
-#             await client.send_message(SENDER, text, parse_mode='html')
-#
-#     except Exception as e:
-#         print(e)
-#         await client.send_message(SENDER, 'Something Wrong happened... Check your code!', parse_mode='html')
-#         return
-#
-#
-#
-# @client.on(events.NewMessage(pattern='(?i)/delete'))
-# async def delete(event):
-#     try:
-#         # Get the sender
-#         sender = await event.get_sender()
-#         SENDER = sender.id
-#
-#         #/ delete 1
-#
-#         # get list of words inserted by the user
-#         list_of_words = event.message.text.split(' ')
-#         id = list_of_words[1] # The second (1) element is the id
-#
-#         # Crete the DELETE query passing the id as a parameter
-#         sql_command = 'DELETE FROM orders WHERE id = (%s);'
-#
-#         # ans here will be the number of rows affected by the delete
-#         ans = crsr.execute(sql_command, (id,))
-#         conn.commit()
-#
-#         # If at least 1 row is affected by the query we send a specific message
-#         if ans < 1:
-#             text = 'Order with id {} is not present'.format(id)
-#             await client.send_message(SENDER, text, parse_mode='html')
-#         else:
-#             text = 'Order with id {} was correctly deleted'.format(id)
-#             await client.send_message(SENDER, text, parse_mode='html')
-#
-#     except Exception as e:
-#         print(e)
-#         await client.send_message(SENDER, 'Something Wrong happened... Check your code!', parse_mode='html')
-#         return
-#
-#
-#
-# # Create database function
-# def create_database(query):
-#     try:
-#         crsr_mysql.execute(query)
-#         print('Database created successfully')
-#     except Exception as e:
-#         print(f'WARNING: '{e}'')
-#
 ##### MAIN
 if __name__ == '__main__':
     main()
-#     try:
-#         print('Initializing Database...')
-#         conn_mysql = MySQLdb.connect( host=HOSTNAME, user=USERNAME, passwd=PASSWORD )
-#         crsr_mysql = conn_mysql.cursor()
-#
-#         query = 'CREATE DATABASE '+str(DATABASE)
-#         create_database(query)
-#         conn = MySQLdb.connect( host=HOSTNAME, user=USERNAME, passwd=PASSWORD, db=DATABASE )
-#         crsr = conn.cursor()
-#
-#         # Command that creates the 'oders' table
-#         sql_command = '''CREATE TABLE IF NOT EXISTS orders (
-#             id INTEGER PRIMARY KEY AUTO_INCREMENT,
-#             product VARCHAR(200),
-#             quantity INT(10),
-#             LAST_EDIT VARCHAR(100));'''
-#
-#         crsr.execute(sql_command)
-#         print('All tables are ready')
-#
-#         print('Bot Started...')
-#         client.run_until_disconnected()
-#
-#     except Exception as error:
-#         print('Cause: {}'.format(error))

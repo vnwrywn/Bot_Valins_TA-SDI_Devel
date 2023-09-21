@@ -1,0 +1,4 @@
+Site_ID_Tenant: 20MLG157
+Tenant: INDOSAT
+Alamat: Gadang, Kota Malang, Jawa Timur, Jawa, 65132, Indonesia
+Koordinat Site: -8.02673,112.62285

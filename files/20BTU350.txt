@@ -1,0 +1,4 @@
+Site_ID_Tenant: 20BTU350
+Tenant: INDOSAT
+Alamat: Mentaraman, Kabupaten Malang, Jawa Timur, Jawa, 66196, Indonesia
+Koordinat Site: -8.2957,112.4242

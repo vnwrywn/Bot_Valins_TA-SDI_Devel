@@ -1,0 +1,4 @@
+Site_ID_Tenant: 20BAT002
+Tenant: INDOSAT
+Alamat: Sidomulyo, Kota Batu, Jawa Timur, Jawa, 65317, Indonesia
+Koordinat Site: -7.85292,112.526

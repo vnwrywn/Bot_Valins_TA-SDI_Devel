@@ -1,0 +1,4 @@
+Site_ID_Tenant: 20BTU341
+Tenant: INDOSAT
+Alamat: TPU Dadaprejo, Jalan Insinyur Soekarno, Dadaprejo, Kota Batu, Lowokwaru, Jawa Timur, Jawa, 65233, Indonesia
+Koordinat Site: -7.90842,112.57787

@@ -1,0 +1,4 @@
+Site_ID_Tenant: 20BTU358
+Tenant: INDOSAT
+Alamat: Petungsewu, Kabupaten Malang, Jawa Timur, Jawa, 65151, Indonesia
+Koordinat Site: -7.9411,112.5555

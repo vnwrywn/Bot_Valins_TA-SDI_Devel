@@ -1,0 +1,4 @@
+Site_ID_Tenant: 20BAT026
+Tenant: INDOSAT
+Alamat: Oro-oro Ombo, Kota Batu, Klojen, Jawa Timur, Jawa, 65316, Indonesia
+Koordinat Site: -7.904494444,112.5236556
