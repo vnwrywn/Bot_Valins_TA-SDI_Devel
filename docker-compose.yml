@@ -7,7 +7,12 @@ services:
     networks:
       - bot_telegram_devel
     environment:
-      - MYSQL_ROOT_PASSWORD=vqTZQcue0f1VY4A9
+      MYSQL_ROOT_PASSWORD: vqTZQcue0f1VY4A9
+      MYSQL_DATABASE: TeleBotDevelDB
+      MYSQL_USER: TeleBotDevel
+      MYSQL_PASSWORD: Mx7Sme5RSvXPW0EQyCCQedQG
+      USERNAME: 6119375027
+      NAMA_USER: Tamara
     volumes:
       - mysql_data:/var/lib/mysql
     ports:
