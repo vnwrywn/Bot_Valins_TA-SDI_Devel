@@ -1,3 +1,5 @@
+#!/bin/python
+
 ###TODO!!!
 # Fungsi input data
 ## Fungsi selective insert (SQL)
@@ -380,12 +382,12 @@ async def input_satuan_csv(update: Update, context: ContextTypes.DEFAULT_TYPE, a
                 continue
 
             else:
-                row['Latitude'], row['Longitude'] = (float(value) for value in output[-1].pop('Koordinat Site').split(','))
+                row['Latitude'], row['Longitude'] = (float(value) for value in row.pop('Koordinat Site').split(','))
                 row['Alamat'] = cari_alamat((row['Latitude'], row['Longitude']))
                 output.append(row)
                 count += 1
 
-    truncate_and_insert_sites(output)
+    insert_sites(output)
     await update.message.reply_text(f'Input satuan {count} baris berhasil.')
     return akhiri_percakapan(context)
 
@@ -422,7 +424,7 @@ async def input_pangkas_csv(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         csv_reader = csv.DictReader(csv_file)
 
         for row in csv_reader:
-            row['Latitude'], row['Longitude'] = (float(value) for value in output[-1].pop('Koordinat Site').split(','))
+            row['Latitude'], row['Longitude'] = (float(value) for value in row.pop('Koordinat Site').split(','))
             row['Alamat'] = cari_alamat((row['Latitude'], row['Longitude']))
             output.append(row)
             count += 1
