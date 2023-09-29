@@ -90,7 +90,7 @@ def main():
 
     ### Conversation Handler Menu Hapus User
     hapus_user_handler = ConversationHandler(
-        entry_points=[CallbackQueryHandler(delete_user, pattern='^opsi_hapus_user$')],
+        entry_points=[CallbackQueryHandler(hapus_user, pattern='^opsi_hapus_user$')],
         states={
             1: [CallbackQueryHandler(konfirmasi_hapus_user, pattern='^hapus_')],
             2: [CallbackQueryHandler(proses_hapus_user, pattern='^konfirmasi_hapus_')]
@@ -556,8 +556,19 @@ def add_admin(user_id, nama):
 
 
 # HAPUS USER
+# Fungsi untuk memperoleh seluruh nama user
+def peroleh_data_user():
+    connection = create_mysql_connection()
+    cursor = connection.cursor()
+    query = 'SELECT `username`, `nama` FROM `allowed_users`'
+    cursor.execute(query)
+    data_user = cursor.fetchall()
+    cursor.close()
+    connection.close()
+    return data_user
+
 # Fungsi untuk menghapus user dari database
-def delete_user(user_id):
+def delete_user(username):
     connection = create_mysql_connection()
     cursor = connection.cursor()
 
@@ -570,14 +581,22 @@ def delete_user(user_id):
     connection.close()
 
 # Fungsi untuk memeriksa apakah user merupakan admin terakhir atau bukan
-def is_last_admin(user_id):
+def is_last_admin(username):
     connection = create_mysql_connection()
     cursor = connection.cursor()
 
     # Implementasi pengecekan apakah user merupakan admin terakhir atau bukan
-    admin_count_query = 'SELECT COUNT(*) FROM `allowed_users` WHERE `is_admin` = 1'
-    cursor.execute(admin_count_query)
-    admin_count = cursor.fetchone()[0]
+    is_admin_query = 'SELECT `is_admin` FROM `allowed_users` WHERE `username` = %s'
+    cursor.execute(is_admin_query)
+
+    if (cursor.fetchone()[0]):
+        cursor.close()
+        admin_count_query = 'SELECT COUNT(*) FROM `allowed_users` WHERE `is_admin` = 1'
+        cursor = connection.cursor()
+        cursor.execute(admin_count_query)
+        admin_count = cursor.fetchone()[0]
+    else:
+        admin_count = 2
 
     cursor.close()
     connection.close()
@@ -591,9 +610,8 @@ async def hapus_user(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_st
     await context.bot.edit_message_reply_markup(chat_id=query.message.chat_id, message_id=query.message.message_id, reply_markup=None)
     context.chat_data['in_conversation'] = True
 
-    # ![Query Nama & ID User]
-    test_list = ['M. Ivan Wiryawan', 'User 1', 'User 2', 'User 3', 'User 4', 'User 5', 'User 6']
-    keyboard = [[InlineKeyboardButton(name, callback_data = 'hapus_' + name.replace(' ', '_'))] for name in test_list]
+    user_list = peroleh_data_user()
+    keyboard = [[InlineKeyboardButton(user[1], callback_data = 'hapus_{0}_{1}'.format(user[1], user[0]))] for user in user_list]
 
     await context.bot.send_message(chat_id=query.message.chat_id, text='Pilih user yang mau dihapus, atau keluar dari proses dengan menggunakan fungsi /batal.', reply_markup=InlineKeyboardMarkup(keyboard))
     return 1
@@ -602,20 +620,22 @@ async def hapus_user(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_st
 @authenticate_admin
 async def konfirmasi_hapus_user(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
     query = update.callback_query
-    button_pressed = query.data
 
     # Ambil nama user dari inputan chat yang masuk
-    nama_user = button_pressed[6:].replace('_', ' ')
+    nama_user, username = query.data.split('_')[1:]
+    print(query.data.split('_')[1:], flush=True)
+    print(username, flush=True)
 
     await context.bot.edit_message_reply_markup(chat_id=query.message.chat_id, message_id=query.message.message_id, reply_markup=None)
     keyboard = [
         [InlineKeyboardButton('Ya', callback_data='konfirmasi_hapus_ya')],
         [InlineKeyboardButton('Tidak', callback_data='konfirmasi_hapus_tidak')],
     ]
-    await context.bot.send_message(chat_id=query.message.chat_id, text=f'Apakah Anda yakin mau menghapus {nama_user} dari daftar user?', reply_markup=InlineKeyboardMarkup(keyboard))
+    await context.bot.send_message(chat_id=query.message.chat_id, text=f'Apakah Anda yakin mau menghapus {nama_user} dari daftar user??', reply_markup=InlineKeyboardMarkup(keyboard))
 
     # Simpan nama user ke dalam chat data untuk digunakan saat proses hapus user
     context.chat_data['nama_user'] = nama_user
+    context.chat_data['username'] = username
 
     return 2
 
@@ -628,15 +648,15 @@ async def proses_hapus_user(update: Update, context: ContextTypes.DEFAULT_TYPE, 
 
     if button_pressed == 'konfirmasi_hapus_ya':
         # Ambil nama user dari chat data
-        nama_user = context.chat_data.get('nama_user', '')
-        if not nama_user:
+        username = context.chat_data.get('username')
+        if not username:
             reply = 'Terjadi kesalahan saat memproses penghapusan user.'
-        elif is_last_admin(nama_user):
+        elif is_last_admin(username):
             reply = 'Tidak bisa menghapus user admin terakhir. Silahkan tambahkan admin baru terlebih dahulu. Proses penghapusan user dibatalkan.'
         else:
             # Hapus user dari database
-            delete_user(nama_user)
-            reply = f'{nama_user} berhasil dihapus dari daftar user.'
+            delete_user(username)
+            reply = '{0} berhasil dihapus dari daftar user.'.format(context.chat_data.get('username'))
 
         await context.bot.send_message(chat_id=query.message.chat_id, text=reply)
     elif button_pressed == 'konfirmasi_hapus_tidak':

@@ -44,7 +44,7 @@ COPY --from=builder-image /lib/${CHIPSET_ARCH}/libc.so.6 /lib/${CHIPSET_ARCH}/
 COPY --from=builder-image /lib/${CHIPSET_ARCH}/libm.so.6 /lib/${CHIPSET_ARCH}/
 
 COPY --chmod=755 /app /app
-COPY --from=builder-image --chmod=744 /files /files
+COPY --from=builder-image --chmod=755 /files /files
 # activate virtual environment
 COPY --from=builder-image /opt/venv /opt/venv
 ENV VIRTUAL_ENV=/opt/venv
