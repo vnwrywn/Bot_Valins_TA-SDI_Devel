@@ -28,10 +28,10 @@ import time
 SQRTo2 = sqrt(2)
 
 # # Read values for MySQLdb
-# HOSTNAME = config.get('default','hostname')
-# USERNAME = config.get('default','username')
-# PASSWORD = config.get('default','password')
-# DATABASE = config.get('default','database')
+# HOSTNAME = config.get('TELEGRAM','hostname')
+# USERNAME = config.get('TELEGRAM','username')
+# PASSWORD = config.get('TELEGRAM','password')
+# DATABASE = config.get('TELEGRAM','database')
 # Get Telegram bot token from configuration
 
 def create_mysql_connection():
@@ -60,7 +60,7 @@ def main():
     config = configparser.ConfigParser()
     config.read('/app/config.ini')
 
-    BOT_TOKEN = config.get('default','bot_token')
+    BOT_TOKEN = config.get('TELEGRAM','bot_token')
 
     # logging.basicConfig(level=logging.DEBUG)
     app = Application.builder().token(BOT_TOKEN).build()
@@ -145,8 +145,9 @@ def main():
     app.add_handler(peroleh_nama_handler)
     app.add_handler(peroleh_berkas_handler)
     app.add_handler(peroleh_token_handler)
-    app.add_handler(CommandHandler('help', bantuan))
-    app.add_handler(CallbackQueryHandler(bantuan, pattern='^opsi_bantuan$'))
+    app.add_handler(CommandHandler('peroleh_username', peroleh_username))
+    app.add_handler(CommandHandler('bantuan', kirim_bantuan))
+    app.add_handler(CallbackQueryHandler(kirim_bantuan, pattern='^opsi_bantuan$'))
 
     while True:
         try:
@@ -867,10 +868,13 @@ def akhiri_percakapan(context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 @authenticate_user
-async def bantuan(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
+async def kirim_bantuan(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
     query = update.callback_query
-    await context.bot.edit_message_reply_markup(chat_id=query.message.chat_id, message_id=query.message.message_id, reply_markup=None)
-    await context.bot.send_message(chat_id=query.message.chat_id, text='''Fungsi Dasar
+    try:
+        await context.bot.edit_message_reply_markup(chat_id=query.message.chat_id, message_id=query.message.message_id, reply_markup=None)
+    except Exception:
+        pass
+    text='''Fungsi Dasar
 /start
 Memulai percakapan. Percakapan tidak dapat dimulai apabila sebuah proses sedang berjalan. Lihat /batal.
 /batal
@@ -887,7 +891,8 @@ Peroleh Lokasi Item: Menjalankan proses untuk memperoleh lokasi item berdasarkan
 Peroleh Nama Item: Menjalankan proses untuk memperoleh nama-nama item berdasarkan lokasi.
 Peroleh File Site: Menjalankan proses untuk memperoleh berkas-berkas berdasarkan nama.
 
-Apabila memerlukan bantuan tambahan, anda dapat menghubungi helpdesk pada...''')
+Apabila memerlukan bantuan tambahan, anda dapat menghubungi helpdesk pada...'''
+    await context.bot.send_message(chat_id=query.message.chat_id, text=text)
 
 async def peroleh_token(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
     await update.message.reply_text(f'Mohon kirimkan nama lengkap anda.')
@@ -907,6 +912,9 @@ async def peroleh_token_process(update: Update, context: ContextTypes.DEFAULT_TY
     token = jwt.encode(payload, 'secret', algorithm='HS256')
     await update.message.reply_text(f'Token anda adalah: {token}')
     return akhiri_percakapan(context)
+
+async def peroleh_username(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
+    await update.message.reply_text(f'Username anda adalah: {str(update.message.from_user.id)}')
 
 @authenticate_user
 async def kirim_data_item(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status, data):

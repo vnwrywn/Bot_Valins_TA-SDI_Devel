@@ -9,15 +9,18 @@ services:
     environment:
       MYSQL_ROOT_PASSWORD: vqTZQcue0f1VY4A9
       MYSQL_DATABASE: TeleBotDevelDB
-      MYSQL_USER: TeleBotDevel
-      MYSQL_PASSWORD: Mx7Sme5RSvXPW0EQyCCQedQG
-      USERNAME: 6119375027
-      NAMA_USER: Tamara
-    volumes:
-      - mysql_data:/var/lib/mysql
+      TELEBOT_USER: TeleBotDevel
+      TELEBOT_PASSWORD: Mx7Sme5RSvXPW0EQyCCQedQG
+      USERNAME: 1139987918
+      NAMA_USER: Muhammad Ivan Wiryawan
     ports:
       - "3307:3306"
-    command: --bind-address=0.0.0.0
+    command: ./entrypoint.sh
+    volumes:
+      - ./entrypoint.sh:/entrypoint.sh
+      - ./replace.sh:/replace.sh
+      - mysql_data:/var/lib/mysql
+      - ./initialized.sql:/docker-entrypoint-initdb.d/init.sql
 
   bot_valins_ta-sdi_devel:
     build: ./
