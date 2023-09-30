@@ -1,9 +1,13 @@
-"-- TIDAK UNTUK DISUNTING SECARA MANUAL" 
-"-- Naskah ini digenerasi oleh deploy.sh atau deploy.bat." 
-"-- Silahkan sunting berkas initialization.sql untuk mengubah kueri inisialisasi basis data." 
-"" 
-"" 
-USE __MYSQL_DATABASE__;
+# TIDAK UNTUK DISUNTING SECARA MANUAL
+# Naskah ini digenerasi oleh deploy.sh atau deploy.bat.
+# Silahkan sunting berkas initialization.sql untuk mengubah kueri inisialisasi basis data.
+
+-- TIDAK UNTUK DISUNTING SECARA MANUAL 
+-- Naskah ini digenerasi oleh deploy.sh atau deploy.bat. 
+-- Silahkan sunting berkas initialization.sql untuk mengubah kueri inisialisasi basis data. 
+ 
+ 
+USE TeleBotDevelDB;
 
 -- Creating tables and inserting first admin into allowed users.
 CREATE TABLE `allowed_users` (
@@ -13,7 +17,7 @@ CREATE TABLE `allowed_users` (
     `is_admin` tinyint(1) NOT NULL
 );
 
-INSERT INTO allowed_users (`username`, `nama`, `is_admin`) VALUES ('__USERNAME__', '__NAMA_USER__', 1);
+INSERT INTO allowed_users (`username`, `nama`, `is_admin`) VALUES ('1139987918', 'Muhammad Ivan Wiryawan', 1);
 
 CREATE TABLE `site_data` (
     `ID` int AUTO_INCREMENT PRIMARY KEY,
@@ -25,8 +29,7 @@ CREATE TABLE `site_data` (
 );
 
 -- Creating a user for telegram bot and granting it privileges.
-CREATE USER `__TELEBOT_USER__`@`%` IDENTIFIED WITH mysql_native_password BY '__TELEBOT_PASSWORD__';
-GRANT SELECT, INSERT, UPDATE, DELETE ON `__MYSQL_DATABASE__`.`allowed_users` TO `__TELEBOT_USER__`@`%`;
-GRANT SELECT, INSERT, UPDATE, DELETE, DROP ON `__MYSQL_DATABASE__`.`site_data` TO `__TELEBOT_USER__`@`%`;
+CREATE USER `TeleBotDevel`@`%` IDENTIFIED WITH mysql_native_password BY 'Mx7Sme5RSvXPW0EQyCCQedQG';
+GRANT SELECT, INSERT, UPDATE, DELETE ON `TeleBotDevelDB`.`allowed_users` TO `TeleBotDevel`@`%`;
+GRANT SELECT, INSERT, UPDATE, DELETE, DROP ON `TeleBotDevelDB`.`site_data` TO `TeleBotDevel`@`%`;
 FLUSH PRIVILEGES;
-
