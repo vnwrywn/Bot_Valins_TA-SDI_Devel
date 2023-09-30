@@ -11,19 +11,15 @@ if %1%==nr (
     set NOCACHE=1
 )
 
-if %1%==n (
-    set NOCACHE=1
-)
+if %1%==n set NOCACHE=1
+if %1%==r set REINITIALIZE=1
 
-if %1%==r (
-    set REINITIALIZE=1
-)
-
-if NOT EXIST initialized.sql set res=1
-if %REINITIALIZE% set res=1
-if res (
-    echo "Membuat berkas inisialisasi basis data..." > initialized.sql
-    echo "-- TIDAK UNTUK DISUNTING SECARA MANUAL" >> initialized.sql
+set res=0
+if not exist initialized.sql set res=1
+if %REINITIALIZE%==1 set res=1
+if %res%==1 (
+    echo "Membuat berkas inisialisasi basis data..."
+    echo "-- TIDAK UNTUK DISUNTING SECARA MANUAL" > initialized.sql
     echo "-- Naskah ini digenerasi oleh deploy.sh atau deploy.bat." >> initialized.sql
     echo "-- Silahkan sunting berkas initialization.sql untuk mengubah kueri inisialisasi basis data." >> initialized.sql
     echo "" >> initialized.sql
@@ -37,7 +33,7 @@ if res (
 )
 
 docker-compose -f docker-compose.yml down -v
-if %NOCACHE% (
+if %NOCACHE%==true (
         docker-compose build --no-cache
     )else (
         docker-compose build
