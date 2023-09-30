@@ -1,20 +1,27 @@
-set REINITIALIZE=false
-set NOCACHE=false
+set REINITIALIZE=0
+set NOCACHE=0
 
-if %1%==rn OR %1%==nr (
-    set REINITIALIZE=true
-    set NOCACHE=true
+if %1%==rn (
+    set REINITIALIZE=1
+    set NOCACHE=1
+)
+
+if %1%==nr (
+    set REINITIALIZE=1
+    set NOCACHE=1
 )
 
 if %1%==n (
-    set NOCACHE=true
+    set NOCACHE=1
 )
 
 if %1%==r (
-    set REINITIALIZE=true
+    set REINITIALIZE=1
 )
 
-if NOT EXIST initialized.sql OR %REINITIALIZE%=true(
+if NOT EXIST initialized.sql set res=1
+if %REINITIALIZE% set res=1
+if res (
     echo "Membuat berkas inisialisasi basis data..." > initialized.sql
     echo "-- TIDAK UNTUK DISUNTING SECARA MANUAL" >> initialized.sql
     echo "-- Naskah ini digenerasi oleh deploy.sh atau deploy.bat." >> initialized.sql
@@ -30,7 +37,7 @@ if NOT EXIST initialized.sql OR %REINITIALIZE%=true(
 )
 
 docker-compose -f docker-compose.yml down -v
-if %NOCACHE%=true (
+if %NOCACHE% (
         docker-compose build --no-cache
     )else (
         docker-compose build
