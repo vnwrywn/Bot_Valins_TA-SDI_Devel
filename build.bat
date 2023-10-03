@@ -1,36 +1,25 @@
 set REINITIALIZE=0
 set NOCACHE=0
 
-if %1%==rn (
+if %1%==sn (
     set REINITIALIZE=1
-    set NOCACHE=1
+    set SKIP=1
 )
 
-if %1%==nr (
+if %1%==ns (
     set REINITIALIZE=1
-    set NOCACHE=1
+    set SKIP=1
 )
 
 if %1%==n set NOCACHE=1
-if %1%==r set REINITIALIZE=1
+if %1%==s set SKIP=1
 
-set res=0
-if not exist initialized.sql set res=1
-if %REINITIALIZE%==1 set res=1
-if %res%==1 (
-    echo Membuat berkas inisialisasi basis data...
-    echo -- TIDAK UNTUK DISUNTING SECARA MANUAL > initialized.sql
-    echo -- Naskah ini digenerasi oleh deploy.sh atau deploy.bat. >> initialized.sql
-    echo -- Silahkan sunting berkas initialization.sql untuk mengubah kueri inisialisasi basis data. >> initialized.sql
-    echo. >> initialized.sql
-    echo. >> initialized.sql
-    type initialization.sql >> initialized.sql
-    echo Berkas inisialisasi basis data berhasil dibuat.
-) else (
-    echo Basis data TIDAK akan diinisialisasi.
-    echo -- TIDAK UNTUK DISUNTING SECARA MANUAL > initialized.sql
-    echo -- Basis data telah terinisialisasi. >> initialized.sql
-    echo -- Silahkan sunting berkas initialization.sql untuk mengubah kueri inisialisasi basis data dan jalankan naskah build.sh atau build.bat dengan opsi -r untuk menginisialisasi ulang basis data. >> initialized.sql
+if %SKIP%==1 (
+    docker volume create mysql_data
+    docker swarm init
+    docker network create --driver overlay bot_telegram_devel
+    python3 create_password.py | sudo docker secret create db_root_password -
+    python3 create_password.py | sudo docker secret create db_telebot_password -
 )
 
 docker-compose -f docker-compose.yml down -v
