@@ -6,10 +6,9 @@
 # Uji fungsi cari lokasi via text
 
 ### Importing necessary libraries
-import configparser # pip install configparser
 import csv
 from datetime import datetime, timedelta
-from functools import wraps
+from functools import wraps, partial
 from geopy.geocoders import Nominatim
 import haversine as hs
 import io
@@ -20,49 +19,57 @@ from math import ceil, radians, sin, cos, sqrt, atan2
 import os
 import openpyxl
 import pymysql
+import secrets
+import signal
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.constants import ParseMode
 from telegram.ext import Application, CommandHandler, ConversationHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 import time
 
+# Instantiate global variables
 SQRTo2 = sqrt(2)
+db_connection = None
+jwt_token_keys = {}
 
-# # Read values for MySQLdb
-# HOSTNAME = config.get('TELEGRAM','hostname')
-# USERNAME = config.get('TELEGRAM','username')
-# PASSWORD = config.get('TELEGRAM','password')
-# DATABASE = config.get('TELEGRAM','database')
-# Get Telegram bot token from configuration
+# Signal handler function for graceful shutdown
+def sigterm_handler(signum, frame):
+    print("Received SIGTERM signal. Closing database connection...")
+    close_db_connection()
+    asyncio.get_event_loop().stop()
+    exit(0)
+
+# Register the SIGTERM signal handler
+signal.signal(signal.SIGTERM, sigterm_handler)
 
 def create_mysql_connection():
-    print('Configuring...', flush = True)
-    config = configparser.ConfigParser()
-    config.read('/app/config.ini')
+    print('Trying to establish connection to the database...', flush = True)
+    with open(os.environ['MYSQL_PASSWORD_FILE'], 'r') as f:
+        passwd = f.read()[:-1]
 
-    host = config.get('MYSQL', 'hostname')
-    user = config.get('MYSQL', 'username')
-    password = config.get('MYSQL', 'password')
-    database = config.get('MYSQL', 'database')
-    port = int(config.get('MYSQL', 'port'))
+    try:
+        conn = pymysql.connect(
+            host = os.environ['MYSQL_HOSTNAME'],
+            port = int(os.environ['MYSQL_PORT']),
+            user = os.environ['MYSQL_USER'],
+            password=passwd,
+            database = os.environ['MYSQL_DATABASE']
+        )
+        return conn
+    except pymysql.Error as e:
+        print(f"Error connecting to the database: {e}")
+        return None
 
-    return pymysql.connect(
-        host=host,
-        port=port,
-        user=user,
-        password=password,
-        database=database
-    )
+def close_db_connection():
+    if connection:
+        db_connection.close()
+        print('Database connection closed', flush = True)
 
 # Main Function
 def main():
-    ### Initializing Configuration
+    # Initializing Configuration
     print('Initializing configuration...', flush = True)
-    config = configparser.ConfigParser()
-    config.read('/app/config.ini')
+    BOT_TOKEN = os.environ['BOT_TOKEN']
 
-    BOT_TOKEN = config.get('TELEGRAM','bot_token')
-
-    # logging.basicConfig(level=logging.DEBUG)
     app = Application.builder().token(BOT_TOKEN).build()
 
     ### Conversation Handler Menu Input
@@ -149,13 +156,20 @@ def main():
     app.add_handler(CommandHandler('bantuan', kirim_bantuan))
     app.add_handler(CallbackQueryHandler(kirim_bantuan, pattern='^opsi_bantuan$'))
 
+    global db_connection
+    while db_connection == None:
+        time.sleep(5)
+        db_connection = create_mysql_connection()
+
+    print('Connection to the database has been established.', flush = True)
+
     while True:
         try:
             print('Polling...', flush = True)
             app.run_polling(poll_interval=4)
         except Exception as e:
             print(e, flush = True)
-            time.sleep(10)
+            time.sleep(15)
             continue
 
 def exclude_commands_filter(update):
@@ -190,22 +204,19 @@ def authenticate_admin(func):
 
 # Function to check user access in the database
 def is_authenticated(user_id):
-    connection = create_mysql_connection()
-    cursor = connection.cursor()
-
-    # Check if the user is an admin
     query_admin = 'SELECT `is_admin` FROM `allowed_users` WHERE `username` = %s'
-    cursor.execute(query_admin, (user_id,))
-    result = cursor.fetchone()
-    cursor.close()
-    connection.close()
 
-    if result == None:
-        return [False, False]
-    elif result[0]:
-        return [True, True]  # Return True if user is an admin with full access
-    else:
-        return [True, False]  # Return True if user is an admin with full access
+    global db_connection
+    with db_connection.cursor() as cursor:
+        cursor.execute(query_admin, (user_id,))
+        result = cursor.fetchone()
+
+    if result:
+        if result[0]:
+            return [True, True]  # Return True if user is an admin with full access
+        else:
+            return [True, False]  # Return True if user is an admin with full access
+    return [False, False]
 
 def check_conv_status(func):
     @wraps(func)
@@ -219,78 +230,78 @@ def check_conv_status(func):
 
 # Retrieve data from MySQL
 def peroleh_nama_site():
-    connection = create_mysql_connection()
-    cursor = connection.cursor()
     query = 'SELECT `Site_ID_Tenant` FROM `site_data`'
-    cursor.execute(query)
-    site_ids = [Site_ID_Tenant[0] for Site_ID_Tenant in cursor]
-    cursor.close()
-    connection.close()
+
+    global db_connection
+    with db_connection.cursor() as cursor:
+        cursor.execute(query)
+        site_ids = [Site_ID_Tenant[0] for Site_ID_Tenant in cursor]
     return site_ids
 
 def cek_nama_site(site_id):
-    connection = create_mysql_connection()
-    cursor = connection.cursor()
     query = 'SELECT 1 FROM `site_data` WHERE `Site_ID_Tenant` = %s'
-    cursor.execute(query, (site_id))
-    exists = cursor.fetchone()
-    cursor.close()
-    connection.close()
+
+    global db_connection
+    with db_connection.cursor() as cursor:
+        cursor.execute(query, (site_id))
+        exists = cursor.fetchone()
+
     return exists
 
 # Retrieve Sites Datas from MySQL
 def peroleh_data_site(site_id):
-    connection = create_mysql_connection()
-    cursor = connection.cursor()
     query = 'SELECT `Site_ID_Tenant`, `Tenant`, `Alamat`, `Latitude`, `Longitude` FROM `site_data` WHERE `Site_ID_Tenant` = %s'
-    cursor.execute(query, (site_id))
-    site_data = cursor.fetchone()
-    cursor.close()
-    connection.close()
+
+    global db_connection
+    with db_connection.cursor() as cursor:
+        cursor.execute(query, (site_id))
+        site_data = cursor.fetchone()
+
     return site_data
 
 # Retrieve datas using radius and location
 def peroleh_dari_radius(latitude, longitude, radius):
-    connection = create_mysql_connection()
-    cursor = connection.cursor()
     coordinates = (latitude, longitude)
+    global SQRTo2
     sqrt_rds = radius * SQRTo2
     max_lat = hs.inverse_haversine(coordinates, sqrt_rds, hs.Direction.NORTH, unit=hs.Unit.METERS)[0]
     max_lon = hs.inverse_haversine(coordinates, sqrt_rds, hs.Direction.EAST, unit=hs.Unit.METERS)[1]
     min_lat = hs.inverse_haversine(coordinates, sqrt_rds, hs.Direction.SOUTH, unit=hs.Unit.METERS)[0]
     min_lon = hs.inverse_haversine(coordinates, sqrt_rds, hs.Direction.WEST, unit=hs.Unit.METERS)[1]
     query = 'SELECT `Site_ID_Tenant`, `Tenant`, `Alamat`, `Latitude`, `Longitude` FROM `site_data` WHERE `Latitude` BETWEEN %s AND %s AND `Longitude` BETWEEN %s AND %s'
-    cursor.execute(query, (min_lat, max_lat, min_lon, max_lon))
-    square_res = cursor.fetchall()
+
+    global db_connection
+    with db_connection.cursor() as cursor:
+        cursor.execute(query, (min_lat, max_lat, min_lon, max_lon))
+        square_res = cursor.fetchall()
     results = []
 
     for item in square_res:
         dist = hs.haversine((latitude, longitude), (item[3], item[4]), unit=hs.Unit.METERS)
         if dist <= radius:
             results.append(item)
-    connection.close()
     return results
 
 # Insert data into MySQL
 def truncate_and_insert_sites(site_datas):
-    connection = create_mysql_connection()
-    cursor = connection.cursor()
     truncate = 'TRUNCATE TABLE `site_data`;'
-    cursor.execute(truncate)
     insert = 'INSERT INTO `site_data` (`Site_ID_Tenant`, `Tenant`, `Alamat`, `Latitude`, `Longitude`) VALUES (%s, %s, %s, %s, %s);'
-    cursor.executemany(insert, [list(dictionary.values()) for dictionary in site_datas])
-    connection.commit()
-    connection.close()
-    return
+
+    global db_connection
+    with db_connection.cursor() as cursor:
+        cursor.execute(truncate)
+        cursor.executemany(insert, [list(dictionary.values()) for dictionary in site_datas])
+
+    db_connection.commit()
 
 def insert_sites(site_datas):
-    connection = create_mysql_connection()
-    cursor = connection.cursor()
     insert = 'INSERT INTO `site_data` (`Site_ID_Tenant`, `Tenant`, `Alamat`, `Latitude`, `Longitude`) VALUES (%s, %s, %s, %s, %s);'
-    cursor.executemany(insert, [list(dictionary.values()) for dictionary in site_datas])
-    connection.commit()
-    connection.close()
-    return
+
+    global db_connection
+    with db_connection.cursor() as cursor:
+        cursor.executemany(insert, [list(dictionary.values()) for dictionary in site_datas])
+
+    db_connection.commit()
 
 ### Main Menu
 @authenticate_user
@@ -484,13 +495,21 @@ async def input_tambah_user(update: Update, context: ContextTypes.DEFAULT_TYPE, 
 @authenticate_admin
 async def proses_tambah_user(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
     token = update.message.text
-    decoded_token = jwt.decode(token, 'secret', algorithms=['HS256'])
-    userid = decoded_token['user_id']
+    userid = jwt.get_unverified_header(token)['user_id']
+    global jwt_token_keys
+    key = jwt_token_keys.pop(userid)
+
+    try:
+        decoded_token = jwt.decode(token, key, algorithms=['HS512'])
+    except jwt.ExpiredSignatureError:
+        await update.message.reply_text('Token telah kadaluarsa. Silahkan membuat token baru. Silahkan masukkan kembali token apabila token sudah dibuat kembali oleh calon user reguler tersangkut atau batalkan proses tambah user reguler dengan menjalankan perintah /batal.')
+        return 2
+
     nama = decoded_token['nama']
 
      # Cek apakah user dengan user_id tertentu sudah ada di database
     if user_exists(userid):
-        await update.message.reply_text('User ID yang dimasukkan telah terdaftar. Proses tambah user dibatalkan.')
+        await update.message.reply_text('User tersebut telah terdaftar. Proses tambah user dibatalkan.')
         return akhiri_percakapan(context)
 
     # Jika user belum terdaftar, tambahkan user baru ke database
@@ -502,13 +521,21 @@ async def proses_tambah_user(update: Update, context: ContextTypes.DEFAULT_TYPE,
 @authenticate_admin
 async def proses_tambah_admin(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
     token = update.message.text
-    decoded_token = jwt.decode(token, 'secret', algorithms=['HS256'])
-    userid = decoded_token['user_id']
+    userid = jwt.get_unverified_header(token)['user_id']
+    global jwt_token_keys
+    key = jwt_token_keys.pop(userid)
+
+    try:
+        decoded_token = jwt.decode(token, key, algorithms=['HS512'])
+    except jwt.ExpiredSignatureError:
+        await update.message.reply_text('Token telah kadaluarsa. Silahkan membuat token baru. Silahkan masukkan kembali token apabila token sudah dibuat kembali oleh calon user admin tersangkut atau batalkan proses tambah user admin dengan menjalankan perintah /batal.')
+        return 3
+
     nama = decoded_token['nama']
 
     # Cek apakah admin dengan user_id tertentu sudah ada di database
     if user_exists(userid):
-        await update.message.reply_text('User ID yang dimasukkan telah terdaftar. Proses tambah admin dibatalkan.')
+        await update.message.reply_text('User tersebut telah terdaftar. Proses tambah admin dibatalkan.')
         return akhiri_percakapan(context)
 
     # Jika admin belum terdaftar, tambahkan admin baru ke database
@@ -519,89 +546,76 @@ async def proses_tambah_admin(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 # Fungsi untuk cek apakah user dengan user_id tertentu sudah ada di database
 def user_exists(user_id):
-    connection = create_mysql_connection()
-    cursor = connection.cursor()
-
     query = 'SELECT 1 FROM `allowed_users` WHERE `username` = %s'
-    cursor.execute(query, (user_id,))
-    result = cursor.fetchone()
 
-    cursor.close()
-    connection.close()
+    global db_connection
+    with db_connection.cursor() as cursor:
+        cursor.execute(query, (user_id,))
+        result = cursor.fetchone()
 
     return result is not None
 
 # Fungsi untuk menambahkan user baru ke database
 def add_user(user_id, nama):
-     connection = create_mysql_connection()
-     cursor = connection.cursor()
+    query = 'INSERT INTO `allowed_users` (`username`, `nama`, `is_admin`) VALUES (%s, %s, 0)'
 
-     query = 'INSERT INTO `allowed_users` (`username`, `nama`, `is_admin`) VALUES (%s, %s, 0)'
-     cursor.execute(query, (user_id, nama))
+    global db_connection
+    with db_connection.cursor() as cursor:
+        cursor.execute(query, (user_id, nama))
 
-     connection.commit()
-     cursor.close()
-     connection.close()
+    db_connection.commit()
 
 # Fungsi untuk menambahkan admin baru ke database
 def add_admin(user_id, nama):
-    connection = create_mysql_connection()
-    cursor = connection.cursor()
-
     query = 'INSERT INTO `allowed_users` (`username`, `nama`, `is_admin`) VALUES (%s, %s, 1)'
-    cursor.execute(query, (user_id, nama))
 
-    connection.commit()
-    cursor.close()
-    connection.close()
+    global db_connection
+    with db_connection.cursor() as cursor:
+        cursor.execute(query, (user_id, nama))
 
+    db_connection.commit()
 
 # HAPUS USER
 # Fungsi untuk memperoleh seluruh nama user
 def peroleh_data_user():
-    connection = create_mysql_connection()
-    cursor = connection.cursor()
     query = 'SELECT `username`, `nama` FROM `allowed_users`'
-    cursor.execute(query)
-    data_user = cursor.fetchall()
-    cursor.close()
-    connection.close()
+
+    global db_connection
+    with db_connection.cursor() as cursor:
+        cursor.execute(query)
+        data_user = cursor.fetchall()
+
     return data_user
 
 # Fungsi untuk menghapus user dari database
 def delete_user(username):
-    connection = create_mysql_connection()
-    cursor = connection.cursor()
-
-    # Implementasi penghapusan user dari database
     delete_query = 'DELETE FROM allowed_users WHERE username = %s'
-    cursor.execute(delete_query, (user_id,))
-    connection.commit()
 
-    cursor.close()
-    connection.close()
+    global db_connection
+    with db_connection.cursor() as cursor:
+        cursor.execute(delete_query, (user_id,))
+
+    db_connection.commit()
 
 # Fungsi untuk memeriksa apakah user merupakan admin terakhir atau bukan
 def is_last_admin(username):
-    connection = create_mysql_connection()
-    cursor = connection.cursor()
+    global db_connection
+    cursor = db_connection.cursor()
 
-    # Implementasi pengecekan apakah user merupakan admin terakhir atau bukan
+    # Implementasi pengecekan apakah user merupakan admin atau bukan
     is_admin_query = 'SELECT `is_admin` FROM `allowed_users` WHERE `username` = %s'
     cursor.execute(is_admin_query)
 
     if (cursor.fetchone()[0]):
         cursor.close()
         admin_count_query = 'SELECT COUNT(*) FROM `allowed_users` WHERE `is_admin` = 1'
-        cursor = connection.cursor()
+        cursor = db_connection.cursor()
         cursor.execute(admin_count_query)
         admin_count = cursor.fetchone()[0]
     else:
         admin_count = 2
 
     cursor.close()
-    connection.close()
-
     return admin_count <= 1
 
 @authenticate_admin
@@ -771,7 +785,7 @@ async def peroleh_lokasi_func(update: Update, context: ContextTypes.DEFAULT_TYPE
         if len(argument) == 8 and argument.isalnum():
 
             # Cek apakah site dengan Site_ID_Tenant tertentu ada di database
-            site = peroleh_data_site(text.upper())
+            site = peroleh_data_site(argument.upper())
 
             if site:
                 await kirim_data_item(update, context, [False, False], site[0])
@@ -892,7 +906,11 @@ Peroleh Nama Item: Menjalankan proses untuk memperoleh nama-nama item berdasarka
 Peroleh File Site: Menjalankan proses untuk memperoleh berkas-berkas berdasarkan nama.
 
 Apabila memerlukan bantuan tambahan, anda dapat menghubungi helpdesk pada...'''
-    await context.bot.send_message(chat_id=query.message.chat_id, text=text)
+
+    try:
+        await context.bot.send_message(chat_id=query.message.chat_id, text=text)
+    except Exception:
+        await update.message.reply_text(f'Token anda adalah: {token}')
 
 async def peroleh_token(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
     await update.message.reply_text(f'Mohon kirimkan nama lengkap anda.')
@@ -900,16 +918,21 @@ async def peroleh_token(update: Update, context: ContextTypes.DEFAULT_TYPE, auth
 
 async def peroleh_token_process(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
     nama = update.message.text.capitalize()
-    user_id = str(update.message.from_user.id)
-    expiration_time = datetime.utcnow() + timedelta(hours=1)
+    userid = str(update.message.from_user.id)
+    expiration_time = datetime.utcnow() + timedelta(minutes=5)
 
-    payload = {
-        'user_id': user_id,
-        'nama': nama,
-        'exp': expiration_time
-    }
+    global jwt_token_keys
+    jwt_token_keys[userid] = secrets.token_bytes(32)
 
-    token = jwt.encode(payload, 'secret', algorithm='HS256')
+    token = jwt.encode(
+        {
+            'nama': nama,
+            'exp': expiration_time
+        },
+        jwt_token_keys[userid],
+        algorithm = 'HS512',
+        headers = {'user_id': userid}
+    )
     await update.message.reply_text(f'Token anda adalah: {token}')
     return akhiri_percakapan(context)
 
@@ -920,7 +943,7 @@ async def peroleh_username(update: Update, context: ContextTypes.DEFAULT_TYPE, a
 async def kirim_data_item(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status, data):
     text = 'Site\_ID\_Tenant: {}\n'.format(data[0])
     text += 'Tenant: {}\n'.format(data[1])
-    text += 'Alamat: {}\n'.format(data[2])
+    text += 'Alamat: {}\n'.format(data[2].replace('_', '').replace('*', '').replace('#', ''))
     text += 'Koordinat Site: [{0},{1}](http://maps.google.com/maps?q={0},{1})\n'.format(data[3], data[4])
     query = update.callback_query
 

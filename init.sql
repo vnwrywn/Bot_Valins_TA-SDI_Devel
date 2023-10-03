@@ -20,8 +20,7 @@ CREATE TABLE `site_data` (
 );
 
 -- Creating a user for telegram bot and granting it privileges.
-CREATE USER `__TELEBOT_USER__`@`%` IDENTIFIED WITH mysql_native_password BY '__TELEBOT_PASSWORD__';
-GRANT SELECT, INSERT, UPDATE, DELETE ON `__MYSQL_DATABASE__`.`allowed_users` TO `__TELEBOT_USER__`@`%`;
-GRANT SELECT, INSERT, UPDATE, DELETE, DROP ON `__MYSQL_DATABASE__`.`site_data` TO `__TELEBOT_USER__`@`%`;
+GRANT SELECT, INSERT, UPDATE, DELETE ON `__MYSQL_DATABASE__`.`allowed_users` TO `__MYSQL_USER__`@`%`;
+GRANT SELECT, INSERT, UPDATE, DELETE, DROP ON `__MYSQL_DATABASE__`.`site_data` TO `__MYSQL_USER__`@`%`;
 FLUSH PRIVILEGES;
 

@@ -25,6 +25,7 @@ if %res%==1 (
     echo. >> initialized.sql
     echo. >> initialized.sql
     type initialization.sql >> initialized.sql
+    echo Berkas inisialisasi basis data berhasil dibuat.
 ) else (
     echo Basis data TIDAK akan diinisialisasi.
     echo -- TIDAK UNTUK DISUNTING SECARA MANUAL > initialized.sql

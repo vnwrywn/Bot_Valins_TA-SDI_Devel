@@ -49,7 +49,6 @@ COPY --chmod=755 /app /app
 COPY --from=builder-image --chmod=644 /files /files
 # Activate virtual environment
 COPY --from=builder-image /opt/venv /opt/venv
-ENV APP_TMP_DATA="/tmp"
 ENV VIRTUAL_ENV=/opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 

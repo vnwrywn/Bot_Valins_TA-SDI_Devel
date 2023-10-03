@@ -1,15 +1,18 @@
+#!/bin/bash
 # Read the SQL script template
-echo Initializing...
-file="/docker-entrypoint-initdb.d/init.sql"
-template=$(<"$file")
+echo Memperbaharui berkas inisialisasi...
+template=$(<"$1")
 
+MYSQL_ROOT_PASSWORD=`cat $MYSQL_ROOT_PASSWORD_FILE`
+MYSQL_PASSWORD=`cat $MYSQL_PASSWORD_FILE`
 # Replace placeholders with environment variables
 template=${template//__MYSQL_DATABASE__/$MYSQL_DATABASE}
-template=${template//__TELEBOT_USER__/$TELEBOT_USER}
-template=${template//__TELEBOT_PASSWORD__/$TELEBOT_PASSWORD}
+template=${template//__MYSQL_USER__/$MYSQL_USER}
+template=${template//__MYSQL_PASSWORD__/$MYSQL_PASSWORD}
+template=${template//__MYSQL_ROOT_PASSWORD__/$MYSQL_ROOT_PASSWORD}
 template=${template//__USERNAME__/$USERNAME}
 template=${template//__NAMA_USER__/$NAMA_USER}
 
 # Save the processed SQL script
-printf '# TIDAK UNTUK DISUNTING SECARA MANUAL\n# Naskah ini digenerasi oleh deploy.sh atau deploy.bat.\n# Silahkan sunting berkas initialization.sql untuk mengubah kueri inisialisasi basis data.\n\n' > "$file"
-echo "$template" >> "$file"
+echo "$template" > "$2"
+
