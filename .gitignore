@@ -1,2 +1,4 @@
-.initialized
+init_status.txt
+always-initdb.d/
+docker-entrypoint-initdb.d/
 files/
