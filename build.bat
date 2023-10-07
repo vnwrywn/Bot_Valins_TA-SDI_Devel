@@ -1,31 +1,30 @@
-set REINITIALIZE=0
+set INITIALIZE=0
 set NOCACHE=0
 
-if %1%==sn (
-    set REINITIALIZE=1
-    set SKIP=1
+if %1%==in (
+    set INITIALIZE=1
+    set NOCACHE=1
 )
 
-if %1%==ns (
-    set REINITIALIZE=1
-    set SKIP=1
+if %1%==ni (
+    set INITIALIZE=1
+    set NOCACHE=1
 )
 
-if %1%==n set NOCACHE=1
-if %1%==s set SKIP=1
-
-if %SKIP%==1 (
-    docker volume create mysql_data
-    docker swarm init
-    docker network create --driver overlay bot_telegram_devel
-    python3 create_password.py | sudo docker secret create db_root_password -
-    python3 create_password.py | sudo docker secret create db_telebot_password -
-)
+if %1%==n set INITIALIZE=1
+if %1%==i set NOCACHE=1
 
 docker-compose -f docker-compose.yml down -v
-if %NOCACHE%==true (
+
+if %INITIALIZE%==1 (
+    docker volume rm mysql_data
+    docker volume create mysql_data
+    Echo Basis data belum terinisialisasi. > init_status.txt
+)
+
+if %NOCACHE%==1 (
         docker-compose build --no-cache
-    )else (
+)else (
         docker-compose build
 )
 

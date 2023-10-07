@@ -1,27 +1,23 @@
 #!/bin/bash
-SKIP=false
-NOCACHE=false
-optspec="ns"
+optspec="in"
 while getopts "$optspec" optchar; do
     case "${optchar}" in
-        n) NOCACHE=true;;
-        s) SKIP=true;;
+        i) INITIALIZE=1;;
+        n) NOCACHE=1;;
     esac
 done
 
-if [[ $SKIP = false ]]; then
-    docker volume create mysql_data
-    docker swarm init
-    docker network create --driver overlay bot_telegram_devel
-    openssl rand -base64 24 | sudo docker secret create db_root_password -
-    openssl rand -base64 24 | sudo docker secret create db_telebot_password -
-fi
-
 docker-compose -f docker-compose.yml down -v || {
-    echo Mohon jalankan script ini sebagai root.
     exit 0
 }
-if [ $NOCACHE = true ];
+
+if [[ -n "$INITIALIZE" ]]; then
+    docker volume rm mysql_data
+    docker volume create mysql_data
+    echo Basis data belum terinisialisasi. > init_status.txt
+fi
+
+if [ -n "$NOCACHE" ];
     then
         docker-compose build --no-cache
     else

@@ -1,3 +1,4 @@
+CREATE USER `__TELEBOT_USER__`@`%` IDENTIFIED WITH mysql_native_password BY "__TELEBOT_PASSWORD__";
 USE __MYSQL_DATABASE__;
 
 -- Creating tables and inserting first admin into allowed users.
@@ -8,7 +9,7 @@ CREATE TABLE `allowed_users` (
     `is_admin` tinyint(1) NOT NULL
 );
 
-INSERT INTO allowed_users (`username`, `nama`, `is_admin`) VALUES ('__USERNAME__', '__NAMA_USER__', 1);
+INSERT INTO allowed_users (`username`, `nama`, `is_admin`) VALUES ("__USERNAME__", "__NAMA_USER__", 1);
 
 CREATE TABLE `site_data` (
     `ID` int AUTO_INCREMENT PRIMARY KEY,
@@ -20,7 +21,7 @@ CREATE TABLE `site_data` (
 );
 
 -- Creating a user for telegram bot and granting it privileges.
-GRANT SELECT, INSERT, UPDATE, DELETE ON `__MYSQL_DATABASE__`.`allowed_users` TO `__MYSQL_USER__`@`%`;
-GRANT SELECT, INSERT, UPDATE, DELETE, DROP ON `__MYSQL_DATABASE__`.`site_data` TO `__MYSQL_USER__`@`%`;
+GRANT SELECT, INSERT, UPDATE, DELETE ON `__MYSQL_DATABASE__`.`allowed_users` TO `__TELEBOT_USER__`@`%`;
+GRANT SELECT, INSERT, UPDATE, DELETE, DROP ON `__MYSQL_DATABASE__`.`site_data` TO `__TELEBOT_USER__`@`%`;
 FLUSH PRIVILEGES;
 

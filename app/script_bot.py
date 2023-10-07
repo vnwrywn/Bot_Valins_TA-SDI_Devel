@@ -6,6 +6,7 @@
 # Uji fungsi cari lokasi via text
 
 ### Importing necessary libraries
+import asyncio
 import csv
 from datetime import datetime, timedelta
 from functools import wraps, partial
@@ -19,8 +20,9 @@ from math import ceil, radians, sin, cos, sqrt, atan2
 import os
 import openpyxl
 import pymysql
-import secrets
 import signal
+import secrets
+from string import ascii_letters, digits
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.constants import ParseMode
 from telegram.ext import Application, CommandHandler, ConversationHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
@@ -31,26 +33,14 @@ SQRTo2 = sqrt(2)
 db_connection = None
 jwt_token_keys = {}
 
-# Signal handler function for graceful shutdown
-def sigterm_handler(signum, frame):
-    print("Received SIGTERM signal. Closing database connection...")
-    close_db_connection()
-    asyncio.get_event_loop().stop()
-    exit(0)
-
-# Register the SIGTERM signal handler
-signal.signal(signal.SIGTERM, sigterm_handler)
-
-def create_mysql_connection():
+def create_mysql_connection(passwd: str):
     print('Trying to establish connection to the database...', flush = True)
-    with open(os.environ['MYSQL_PASSWORD_FILE'], 'r') as f:
-        passwd = f.read()[:-1]
 
     try:
         conn = pymysql.connect(
             host = os.environ['MYSQL_HOSTNAME'],
             port = int(os.environ['MYSQL_PORT']),
-            user = os.environ['MYSQL_USER'],
+            user = os.environ['TELEBOT_USER'],
             password=passwd,
             database = os.environ['MYSQL_DATABASE']
         )
@@ -59,9 +49,9 @@ def create_mysql_connection():
         print(f"Error connecting to the database: {e}")
         return None
 
-def close_db_connection():
+def close_db_connection(connection):
     if connection:
-        db_connection.close()
+        connection.close()
         print('Database connection closed', flush = True)
 
 # Main Function
@@ -71,6 +61,26 @@ def main():
     BOT_TOKEN = os.environ['BOT_TOKEN']
 
     app = Application.builder().token(BOT_TOKEN).build()
+
+    telebot_passwd = generate_password()
+
+    with open(r'/init_status.txt', 'r') as file:
+        init_status = file.read()[:-1]
+
+    if init_status == 'Basis data belum terinisialisasi.':
+        filename = r'/docker-entrypoint-initdb.d/init.sql'
+
+    elif init_status == 'Basis data sudah terinisialisasi.':
+        filename = r'/always-initdb.d/init.sql'
+
+    with open(filename, 'r') as file:
+        data = file.read()
+
+    with open(filename, 'w') as file:
+        data = data.replace('__TELEBOT_PASSWORD__', telebot_passwd)
+        file.write(data)
+
+    print(f'Mysql user password: {telebot_passwd}', flush  = True)
 
     ### Conversation Handler Menu Input
     input_data_handler = ConversationHandler(
@@ -159,7 +169,7 @@ def main():
     global db_connection
     while db_connection == None:
         time.sleep(5)
-        db_connection = create_mysql_connection()
+        db_connection = create_mysql_connection(telebot_passwd)
 
     print('Connection to the database has been established.', flush = True)
 
@@ -167,13 +177,31 @@ def main():
         try:
             print('Polling...', flush = True)
             app.run_polling(poll_interval=4)
+        except ValueError as e:
+            if str(e) == 'a coroutine was expected, got None':
+                print("Received SIGTERM signal. Closing database connection...")
+                close_db_connection(db_connection)
+                exit(0)
+            else:
+                print(e, flush = True)
+                app.stop_running()
+                print('Polling temporarily stopped.', flush = True)
+                time.sleep(15)
+                continue
         except Exception as e:
             print(e, flush = True)
+            app.stop_running()
+            print('Polling temporarily stopped.', flush = True)
             time.sleep(15)
             continue
 
 def exclude_commands_filter(update):
     return not update.message.text.startswith('/')
+
+def generate_password(pass_len: int=32):
+  alphabet = ascii_letters + digits + '~!@#$^&*()-+={}[]/<>,.?:| '
+  unescaped = ''.join(secrets.choice(alphabet) for i in range(pass_len))
+  return unescaped
 
 ### Middleware functions for user authentication
 def authenticate_user(func):
@@ -456,8 +484,8 @@ def cari_alamat(koordinat):
             ongoing = False
             return location.address
         except Exception as e:
-            print('Geocoder error.', e, 'Retrying', flush = True)
-            sleeptime += 1
+            print('Geocoder error:', e, 'Retrying...', flush = True)
+            sleeptime += sleeptime<=15
             time.sleep(sleeptime)
             pass
 
@@ -786,9 +814,10 @@ async def peroleh_lokasi_func(update: Update, context: ContextTypes.DEFAULT_TYPE
 
             # Cek apakah site dengan Site_ID_Tenant tertentu ada di database
             site = peroleh_data_site(argument.upper())
+            print(site, flush = True)
 
             if site:
-                await kirim_data_item(update, context, [False, False], site[0])
+                await kirim_data_item(update, context, [False, False], site)
 
             else:
                 await update.message.reply_text('Site tidak ditemukan.')
@@ -949,10 +978,16 @@ async def kirim_data_item(update: Update, context: ContextTypes.DEFAULT_TYPE, au
 
     if query:
         await context.bot.send_message(chat_id=query.message.chat_id, text=text, parse_mode=ParseMode.MARKDOWN)
-        await context.bot.send_location(chat_id=query.message.chat_id, latitude=data[3], longitude=data[4])
+        try:
+            await context.bot.send_location(chat_id=query.message.chat_id, latitude=data[3], longitude=data[4])
+        except Exception as e:
+            print(e, flush = True)
     else:
         await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
-        await update.message.reply_location(data[3], data[4])
+        try:
+            await context.bot.send_location(chat_id=query.message.chat_id, latitude=data[3], longitude=data[4])
+        except Exception as e:
+            print(e, flush = True)
 
 ##### MAIN
 if __name__ == '__main__':

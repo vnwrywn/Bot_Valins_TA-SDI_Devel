@@ -1,4 +1,4 @@
-version: '3.1'
+version: '3'
 
 services:
   mysql_server:
@@ -8,27 +8,29 @@ services:
       - bot_telegram_devel
     environment:
       MYSQL_DATABASE: TeleBotDevelDB
-      MYSQL_ROOT_PASSWORD_FILE: /run/secrets/db_root_password
+      MYSQL_RANDOM_ROOT_PASSWORD: 1
+      TELEBOT_USER: TeleBotDevel
       NAMA_USER: Muhammad Ivan Wiryawan
-      MYSQL_USER: TeleBotDevel
-      MYSQL_PASSWORD_FILE: /run/secrets/db_telebot_password
       USERNAME: 1139987918
     ports:
       - "3307:3306"
     volumes:
       - ./entrypoint.sh:/entrypoint.sh
       - ./replace.sh:/replace.sh
+      - ./initialization.sql:/tmp/init.sql:ro
+      - ./change_telebot_pass.sql:/tmp/change_telebot_pass.sql:ro
+      - ./docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
+      - ./always-initdb.d:/always-initdb.d
+      - ./init_status.txt:/init_status.txt
       - mysql_data:/var/lib/mysql
-      - ./init.sql:/tmp/init.sql
-    command: ./entrypoint.sh /tmp/init.sql /docker-entrypoint-initdb.d/init.sql
-    secrets:
-      - db_root_password
-      - db_telebot_password
+    entrypoint: /entrypoint.sh
+    command: ["mysqld"]
 
   bot_valins_ta-sdi_devel:
     image: bot_valins_ta-sdi_devel
     build: ./
     container_name: telebot
+    init: true
     depends_on:
       - mysql_server
     links:
@@ -41,22 +43,17 @@ services:
       MYSQL_DATABASE: TeleBotDevelDB
       MYSQL_HOSTNAME: mysql_server
       MYSQL_PORT: 3306
-      MYSQL_USER: TeleBotDevel
-      MYSQL_PASSWORD_FILE: /run/secrets/db_telebot_password
+      TELEBOT_USER: TeleBotDevel
     volumes:
       - ./files:/files
-    secrets:
-      - db_telebot_password
+      - ./init_status.txt:/init_status.txt
+      - ./docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
+      - ./always-initdb.d:/always-initdb.d
 
 networks:
   bot_telegram_devel:
 
 volumes:
   mysql_data:
-
-secrets:
-  db_root_password:
-    external: true
-  db_telebot_password:
     external: true
 
