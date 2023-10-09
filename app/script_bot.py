@@ -25,6 +25,7 @@ import secrets
 from string import ascii_letters, digits
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.constants import ParseMode
+import telegram.error
 from telegram.ext import Application, CommandHandler, ConversationHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 import time
 
@@ -97,10 +98,9 @@ def main():
     tambah_user_handler = ConversationHandler(
         entry_points=[CallbackQueryHandler(tambah_user, pattern='^opsi_tambah_user$')],
         states={
-            1: [CallbackQueryHandler(input_tambah_user, pattern='^tambah_')],
+            1: [CallbackQueryHandler(input_tambah_user, pattern='^tambah_user_')],
             2: [MessageHandler(filters.TEXT & (~ filters.COMMAND), proses_tambah_user)],
             3: [MessageHandler(filters.TEXT & (~ filters.COMMAND), proses_tambah_admin)]
-            # 4: [CallbackQueryHandler(konfirmasi_tambah_user, pattern='^konfirmasi_tambah_')]
         },
         fallbacks=[CommandHandler('batal', batal)]
     )
@@ -109,8 +109,28 @@ def main():
     hapus_user_handler = ConversationHandler(
         entry_points=[CallbackQueryHandler(hapus_user, pattern='^opsi_hapus_user$')],
         states={
-            1: [CallbackQueryHandler(konfirmasi_hapus_user, pattern='^hapus_')],
-            2: [CallbackQueryHandler(proses_hapus_user, pattern='^konfirmasi_hapus_')]
+            1: [CallbackQueryHandler(konfirmasi_hapus_user, pattern='^hapus_user_')],
+            2: [CallbackQueryHandler(proses_hapus_user, pattern='^konfirmasi_hapus_user_')]
+        },
+        fallbacks=[CommandHandler('batal', batal)]
+    )
+
+    ### Conversation Handler Menu Tambah Contact Person
+    tambah_cp_handler = ConversationHandler(
+        entry_points=[CallbackQueryHandler(tambah_cp, pattern='^opsi_tambah_cp$')],
+        states={
+            1: [MessageHandler(filters.TEXT & (~ filters.COMMAND), input_tambah_cp)],
+            2: [MessageHandler(filters.TEXT & (~ filters.COMMAND), proses_tambah_cp)]
+        },
+        fallbacks=[CommandHandler('batal', batal)]
+    )
+
+    ### Conversation Handler Menu Hapus Contact Person
+    hapus_cp_handler = ConversationHandler(
+        entry_points=[CallbackQueryHandler(hapus_cp, pattern='^opsi_hapus_cp$')],
+        states={
+            1: [CallbackQueryHandler(konfirmasi_hapus_cp, pattern='^hapus_cp_')],
+            2: [CallbackQueryHandler(proses_hapus_cp, pattern='^konfirmasi_hapus_cp_')]
         },
         fallbacks=[CommandHandler('batal', batal)]
     )
@@ -157,6 +177,8 @@ def main():
     app.add_handler(input_data_handler)
     app.add_handler(tambah_user_handler)
     app.add_handler(hapus_user_handler)
+    app.add_handler(tambah_cp_handler)
+    app.add_handler(hapus_cp_handler)
     app.add_handler(peroleh_lokasi_handler)
     app.add_handler(CommandHandler('peroleh_lokasi', peroleh_lokasi_func))
     app.add_handler(peroleh_nama_handler)
@@ -175,24 +197,13 @@ def main():
 
     while True:
         try:
-            print('Polling...', flush = True)
-            app.run_polling(poll_interval=4)
-        except ValueError as e:
-            if str(e) == 'a coroutine was expected, got None':
-                print("Received SIGTERM signal. Closing database connection...")
-                close_db_connection(db_connection)
-                exit(0)
-            else:
-                print(e, flush = True)
-                app.stop_running()
-                print('Polling temporarily stopped.', flush = True)
-                time.sleep(15)
-                continue
-        except Exception as e:
+    print('Polling...', flush = True)
+    app.run_polling(poll_interval=4)
+        except telegram.error.TimedOut as e:
             print(e, flush = True)
             app.stop_running()
             print('Polling temporarily stopped.', flush = True)
-            time.sleep(15)
+            time.sleep(10)
             continue
 
 def exclude_commands_filter(update):
@@ -214,7 +225,7 @@ def authenticate_user(func):
             return await func(update, context, auth_status_res, *args, **kwargs)
         else:
             # User is not authenticated.
-            await context.bot.send_message(chat_id=update.effective_chat.id, text='Access denied.')
+            await retry_on_error(context.bot.send_message, chat_id=update.effective_chat.id, text='Access denied.')
     return wrapper
 
 def authenticate_admin(func):
@@ -227,8 +238,22 @@ def authenticate_admin(func):
             return await func(update, context, auth_status_res, *args, **kwargs)
         else:
             # User is not authenticated or not an admin.
-            await context.bot.send_message(chat_id=update.effective_chat.id, text='Access denied.')
+            await retry_on_error(context.bot.send_message, chat_id=update.effective_chat.id, text='Access denied.')
     return wrapper
+
+# Function to handle network errors
+async def retry_on_error(func, wait=0.15, retry=-1, *args, **kwargs):
+    i = 0
+    while True:
+        try:
+            return await func(*args, **kwargs)
+            break
+        except telegram.error.NetworkError:
+            time.sleep(wait)
+            if i == retry:
+                break
+            i += 1
+            print(f'Network Error. Retrying...{i}', flush = True)
 
 # Function to check user access in the database
 def is_authenticated(user_id):
@@ -250,7 +275,10 @@ def check_conv_status(func):
     @wraps(func)
     async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False], *args, **kwargs):
         if context.chat_data.get('in_conversation'):
-            await update.message.reply_text('Mohon akhiri percakapan terlebih dahulu dengan menjalankan fungsi /batal.')
+            try:
+                await retry_on_error(update.message.reply_text, text='Mohon akhiri percakapan terlebih dahulu dengan menjalankan fungsi /batal.')
+            except AttributeError:
+                await retry_on_error(context.bot.send_message, chat_id=query.message.chat_id, text='Mohon akhiri percakapan terlebih dahulu dengan menjalankan fungsi /batal.', reply_markup=InlineKeyboardMarkup(keyboard))
         else:
             # User is not authenticated or not an admin.
             return await func(update, context, auth_status, *args, **kwargs)
@@ -347,9 +375,11 @@ async def main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_sta
             [InlineKeyboardButton('Input Data', callback_data='opsi_input_data')],
             [InlineKeyboardButton('Tambah User', callback_data='opsi_tambah_user')],
             [InlineKeyboardButton('Hapus User', callback_data='opsi_hapus_user')],
+            [InlineKeyboardButton('Tambah Contact Person', callback_data='opsi_tambah_cp')],
+            [InlineKeyboardButton('Hapus Contact Person', callback_data='opsi_hapus_cp')],
         ] + keyboard
 
-    await update.message.reply_text('Menu Utama', reply_markup=InlineKeyboardMarkup(keyboard))
+    await retry_on_error(update.message.reply_text, text='Menu Utama', reply_markup=InlineKeyboardMarkup(keyboard))
 
 ### Input Data
 @authenticate_admin
@@ -364,7 +394,7 @@ async def menu_input(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_st
         [InlineKeyboardButton('Input Satuan', callback_data='input_satuan')],
     ]
 
-    await context.bot.send_message(chat_id=query.message.chat_id, text='Pilih metode input.', reply_markup=InlineKeyboardMarkup(keyboard))
+    await retry_on_error(context.bot.send_message, chat_id=query.message.chat_id, text='Pilih metode input.', reply_markup=InlineKeyboardMarkup(keyboard))
     return 1
 
 @authenticate_admin
@@ -373,7 +403,7 @@ async def input_data(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_st
     button_pressed = query.data
 
     await context.bot.edit_message_reply_markup(chat_id=query.message.chat_id, message_id=query.message.message_id, reply_markup=None)
-    await context.bot.send_message(chat_id=query.message.chat_id, text='Silahkan unggah berkas.')
+    await retry_on_error(context.bot.send_message, chat_id=query.message.chat_id, text='Silahkan unggah berkas.')
 
     if button_pressed == 'input_satuan':
         return 2
@@ -401,7 +431,7 @@ async def input_satuan_xlsx(update: Update, context: ContextTypes.DEFAULT_TYPE, 
             count += 1
 
     insert_sites(output)
-    await update.message.reply_text(f'Input satuan {count} baris berhasil.')
+    await retry_on_error(update.message.reply_text, text=f'Input satuan {count} baris berhasil.')
     return akhiri_percakapan(context)
 
 @authenticate_admin
@@ -428,7 +458,7 @@ async def input_satuan_csv(update: Update, context: ContextTypes.DEFAULT_TYPE, a
                 count += 1
 
     insert_sites(output)
-    await update.message.reply_text(f'Input satuan {count} baris berhasil.')
+    await retry_on_error(update.message.reply_text, text=f'Input satuan {count} baris berhasil.')
     return akhiri_percakapan(context)
 
 @authenticate_admin
@@ -448,7 +478,7 @@ async def input_pangkas_xlsx(update: Update, context: ContextTypes.DEFAULT_TYPE,
         count += 1
 
     truncate_and_insert_sites(output)
-    await update.message.reply_text(f'Input pangkas {count} baris berhasil.')
+    await retry_on_error(update.message.reply_text, text=f'Input pangkas {count} baris berhasil.')
     return akhiri_percakapan(context)
 
 @authenticate_admin
@@ -470,7 +500,7 @@ async def input_pangkas_csv(update: Update, context: ContextTypes.DEFAULT_TYPE, 
             count += 1
 
     truncate_and_insert_sites(output)
-    await update.message.reply_text(f'Input pangkas {count} baris berhasil.')
+    await retry_on_error(update.message.reply_text, text=f'Input pangkas {count} baris berhasil.')
     return akhiri_percakapan(context)
 
 def cari_alamat(koordinat):
@@ -500,11 +530,11 @@ async def tambah_user(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_s
     context.chat_data['in_conversation'] = True
 
     keyboard = [
-        [InlineKeyboardButton('Tambahkan User Reguler', callback_data='tambah_reguler')],
-        [InlineKeyboardButton('Tambahkan User Admin', callback_data='tambah_admin')],
+        [InlineKeyboardButton('Tambahkan User Reguler', callback_data='tambah_user_reguler')],
+        [InlineKeyboardButton('Tambahkan User Admin', callback_data='tambah_user_admin')],
     ]
 
-    await context.bot.send_message(chat_id=query.message.chat_id, text='Pilih jenis user.', reply_markup=InlineKeyboardMarkup(keyboard))
+    await retry_on_error(context.bot.send_message, chat_id=query.message.chat_id, text='Pilih jenis user.', reply_markup=InlineKeyboardMarkup(keyboard))
     return 1
 
 @authenticate_admin
@@ -513,12 +543,14 @@ async def input_tambah_user(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     button_pressed = query.data
     await context.bot.edit_message_reply_markup(chat_id=query.message.chat_id, message_id=query.message.message_id, reply_markup=None)
 
-    if button_pressed == 'tambah_reguler':
-        await context.bot.send_message(chat_id=query.message.chat_id, text='Silahkan masukkan token. Untuk membuat token, calon user reguler tersangkut harus menjalankan perintah /peroleh_token dan memberikan nama lengkapnya dalam tahapan yang dijalankan.')
-        return 2
+    if button_pressed == 'tambah_user_admin':
+        await retry_on_error(context.bot.send_message, chat_id=query.message.chat_id, text='Silahkan masukkan token calon user admin. Untuk membuat token, calon user admin tersangkut harus menjalankan perintah /peroleh_token dan memberikan nama lengkapnya dalam tahapan yang dijalankan.')
+        return 3
 
-    await context.bot.send_message(chat_id=query.message.chat_id, text='Silahkan masukkan ID pengguna. Untuk membuat token, calon user admin tersangkut harus menjalankan perintah /peroleh_token dan memberikan nama lengkapnya dalam tahapan yang dijalankan.')
-    return 3
+    elif button_pressed == 'tambah_user_reguler':
+        await retry_on_error(context.bot.send_message, chat_id=query.message.chat_id, text='Silahkan masukkan token calon user reguler. Untuk membuat token, calon user reguler tersangkut harus menjalankan perintah /peroleh_token dan memberikan nama lengkapnya dalam tahapan yang dijalankan.')
+
+    return 2
 
 @authenticate_admin
 async def proses_tambah_user(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
@@ -530,20 +562,20 @@ async def proses_tambah_user(update: Update, context: ContextTypes.DEFAULT_TYPE,
     try:
         decoded_token = jwt.decode(token, key, algorithms=['HS512'])
     except jwt.ExpiredSignatureError:
-        await update.message.reply_text('Token telah kadaluarsa. Silahkan membuat token baru. Silahkan masukkan kembali token apabila token sudah dibuat kembali oleh calon user reguler tersangkut atau batalkan proses tambah user reguler dengan menjalankan perintah /batal.')
+        await retry_on_error(update.message.reply_text, text='Token telah kadaluarsa. Silahkan membuat token baru dan masukkan kembali token apabila token sudah dibuat kembali oleh calon user reguler tersangkut atau batalkan proses tambah user reguler dengan menjalankan perintah /batal.')
         return 2
 
     nama = decoded_token['nama']
 
      # Cek apakah user dengan user_id tertentu sudah ada di database
     if user_exists(userid):
-        await update.message.reply_text('User tersebut telah terdaftar. Proses tambah user dibatalkan.')
-        return akhiri_percakapan(context)
+        await retry_on_error(update.message.reply_text, text='User tersebut telah terdaftar. Proses tambah user dibatalkan.')
 
-    # Jika user belum terdaftar, tambahkan user baru ke database
-    add_user(userid, nama)
+    else:
+        # Jika user belum terdaftar, tambahkan user baru ke database
+        add_user(userid, nama)
+        await retry_on_error(update.message.reply_text, text=f'Berhasil menambahkan user berikut:\nUser ID: {userid}\nNama: {nama}')
 
-    await update.message.reply_text(f'Berhasil menambahkan user berikut.\nUser ID: {userid}\nNama: {nama}')
     return akhiri_percakapan(context)
 
 @authenticate_admin
@@ -556,20 +588,20 @@ async def proses_tambah_admin(update: Update, context: ContextTypes.DEFAULT_TYPE
     try:
         decoded_token = jwt.decode(token, key, algorithms=['HS512'])
     except jwt.ExpiredSignatureError:
-        await update.message.reply_text('Token telah kadaluarsa. Silahkan membuat token baru. Silahkan masukkan kembali token apabila token sudah dibuat kembali oleh calon user admin tersangkut atau batalkan proses tambah user admin dengan menjalankan perintah /batal.')
+        await retry_on_error(update.message.reply_text, text='Token telah kadaluarsa. Silahkan membuat token baru dan masukkan kembali token apabila token sudah dibuat kembali oleh calon user admin tersangkut atau batalkan proses tambah user admin dengan menjalankan perintah /batal.')
         return 3
 
     nama = decoded_token['nama']
 
     # Cek apakah admin dengan user_id tertentu sudah ada di database
     if user_exists(userid):
-        await update.message.reply_text('User tersebut telah terdaftar. Proses tambah admin dibatalkan.')
-        return akhiri_percakapan(context)
+        await retry_on_error(update.message.reply_text, text='User tersebut telah terdaftar. Proses tambah admin dibatalkan.')
 
-    # Jika admin belum terdaftar, tambahkan admin baru ke database
-    add_admin(userid, nama)
+    else:
+        # Jika admin belum terdaftar, tambahkan admin baru ke database
+        add_admin(userid, nama)
+        await retry_on_error(update.message.reply_text, text=f'Berhasil menambahkan admin berikut:\nUser ID: {userid}\nNama: {nama}')
 
-    await update.message.reply_text(f'Berhasil menambahkan admin berikut.\nUser ID: {userid}\nNama: {nama}')
     return akhiri_percakapan(context)
 
 # Fungsi untuk cek apakah user dengan user_id tertentu sudah ada di database
@@ -603,7 +635,7 @@ def add_admin(user_id, nama):
 
     db_connection.commit()
 
-# HAPUS USER
+### Hapus User
 # Fungsi untuk memperoleh seluruh nama user
 def peroleh_data_user():
     query = 'SELECT `username`, `nama` FROM `allowed_users`'
@@ -617,7 +649,7 @@ def peroleh_data_user():
 
 # Fungsi untuk menghapus user dari database
 def delete_user(username):
-    delete_query = 'DELETE FROM allowed_users WHERE username = %s'
+    delete_query = 'DELETE FROM `allowed_users` WHERE `username` = %s'
 
     global db_connection
     with db_connection.cursor() as cursor:
@@ -632,7 +664,7 @@ def is_last_admin(username):
 
     # Implementasi pengecekan apakah user merupakan admin atau bukan
     is_admin_query = 'SELECT `is_admin` FROM `allowed_users` WHERE `username` = %s'
-    cursor.execute(is_admin_query)
+    cursor.execute(is_admin_query, (username,))
 
     if (cursor.fetchone()[0]):
         cursor.close()
@@ -654,9 +686,9 @@ async def hapus_user(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_st
     context.chat_data['in_conversation'] = True
 
     user_list = peroleh_data_user()
-    keyboard = [[InlineKeyboardButton(user[1], callback_data = 'hapus_{0}_{1}'.format(user[1], user[0]))] for user in user_list]
+    keyboard = [[InlineKeyboardButton(user[1], callback_data = 'hapus_user_{0}_{1}'.format(user[0], user[1]))] for user in user_list]
 
-    await context.bot.send_message(chat_id=query.message.chat_id, text='Pilih user yang mau dihapus, atau keluar dari proses dengan menggunakan fungsi /batal.', reply_markup=InlineKeyboardMarkup(keyboard))
+    await retry_on_error(context.bot.send_message, chat_id=query.message.chat_id, text='Pilih user yang mau dihapus, atau keluar dari proses dengan menggunakan fungsi /batal.', reply_markup=InlineKeyboardMarkup(keyboard))
     return 1
 
 #  Fungsi untuk memproses hapus user
@@ -665,22 +697,25 @@ async def konfirmasi_hapus_user(update: Update, context: ContextTypes.DEFAULT_TY
     query = update.callback_query
 
     # Ambil nama user dari inputan chat yang masuk
-    nama_user, username = query.data.split('_')[1:]
-    print(query.data.split('_')[1:], flush=True)
-    print(username, flush=True)
+    username, nama_user = query.data[11:].split('_')
 
-    await context.bot.edit_message_reply_markup(chat_id=query.message.chat_id, message_id=query.message.message_id, reply_markup=None)
-    keyboard = [
-        [InlineKeyboardButton('Ya', callback_data='konfirmasi_hapus_ya')],
-        [InlineKeyboardButton('Tidak', callback_data='konfirmasi_hapus_tidak')],
-    ]
-    await context.bot.send_message(chat_id=query.message.chat_id, text=f'Apakah Anda yakin mau menghapus {nama_user} dari daftar user??', reply_markup=InlineKeyboardMarkup(keyboard))
+    if is_last_admin(username):
+        await retry_on_error(context.bot.send_message, chat_id=query.message.chat_id, text='Tidak bisa menghapus user admin terakhir. Anda dapat menambahkan admin baru terlebih dahulu dan mencoba kembali menghapus user ini. Silahkan pilih kembali user yang mau dihapuskan atau akhiri proses penghapusan user dengan menjalankan perintah /batal.')
 
-    # Simpan nama user ke dalam chat data untuk digunakan saat proses hapus user
-    context.chat_data['nama_user'] = nama_user
-    context.chat_data['username'] = username
+    else:
+        await context.bot.edit_message_reply_markup(chat_id=query.message.chat_id, message_id=query.message.message_id, reply_markup=None)
+        keyboard = [
+            [InlineKeyboardButton('Ya', callback_data='konfirmasi_hapus_user_ya')],
+            [InlineKeyboardButton('Tidak', callback_data='konfirmasi_hapus_user_tidak')],
+        ]
+        await retry_on_error(context.bot.send_message, chat_id=query.message.chat_id, text=f'Apakah Anda yakin mau menghapus {nama_user} dari daftar user??', reply_markup=InlineKeyboardMarkup(keyboard))
 
-    return 2
+        # Simpan nama user ke dalam chat data untuk digunakan saat proses hapus user
+        context.chat_data['nama_user'] = nama_user
+        context.chat_data['username'] = username
+        return 2
+
+    return 1
 
 # Fungsi untuk proses hapus user
 @authenticate_admin
@@ -689,52 +724,171 @@ async def proses_hapus_user(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     button_pressed = query.data
     await context.bot.edit_message_reply_markup(chat_id=query.message.chat_id, message_id=query.message.message_id, reply_markup=None)
 
-    if button_pressed == 'konfirmasi_hapus_ya':
+    if button_pressed == 'konfirmasi_hapus_user_ya':
         # Ambil nama user dari chat data
         username = context.chat_data.get('username')
         if not username:
             reply = 'Terjadi kesalahan saat memproses penghapusan user.'
-        elif is_last_admin(username):
-            reply = 'Tidak bisa menghapus user admin terakhir. Silahkan tambahkan admin baru terlebih dahulu. Proses penghapusan user dibatalkan.'
         else:
             # Hapus user dari database
             delete_user(username)
-            reply = '{0} berhasil dihapus dari daftar user.'.format(context.chat_data.get('username'))
+            reply = '{0} berhasil dihapus dari daftar user.'.format(context.chat_data.get('nama_user'))
 
-        await context.bot.send_message(chat_id=query.message.chat_id, text=reply)
-    elif button_pressed == 'konfirmasi_hapus_tidak':
-        await context.bot.send_message(chat_id=query.message.chat_id, text='Proses penghapusan user dibatalkan.')
+    elif button_pressed == 'konfirmasi_hapus_user_tidak':
+        reply = 'User tidak dihapuskan. Proses penghapusan user dibatalkan.'
 
+    await retry_on_error(context.bot.send_message, chat_id=query.message.chat_id, text=reply)
     return akhiri_percakapan(context)
 
+### Tambah Contact Person
 @authenticate_admin
-async def konfirmasi_hapus_user(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
+@check_conv_status
+async def tambah_cp(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
     query = update.callback_query
-    button_pressed = query.data
-    nama = context.chat_data['nama_user'] = button_pressed[6:].replace('_', ' ')
     await context.bot.edit_message_reply_markup(chat_id=query.message.chat_id, message_id=query.message.message_id, reply_markup=None)
-    keyboard = [
-        [InlineKeyboardButton('Ya', callback_data='konfirmasi_hapus_ya')],
-        [InlineKeyboardButton('Tidak', callback_data='konfirmasi_hapus_tidak')],
-    ]
-    await context.bot.send_message(chat_id=query.message.chat_id, text=f'Apakah anda yakin mau menghapus {nama} dari daftar user?', reply_markup=InlineKeyboardMarkup(keyboard))
+    context.chat_data['in_conversation'] = True
+
+    await retry_on_error(context.bot.send_message, chat_id=query.message.chat_id, text='Silahkan masukkan nomor telepon Telegram contact person.')
+    return 1
+
+@authenticate_admin
+async def input_tambah_cp(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
+    nomor = update.message.text
+
+    if nomor[0] == '+':
+        if nomor[1:].isnumeric():
+            if len(nomor) <= 15 and len(nomor) >= 9:
+                if cp_exists(nomor):
+                    await retry_on_error(update.message.reply_text, text='Contact person dengan nomor telepon tersebut telah terdaftar dalam basis data. Silahkan masukkan kembali nomor telepon contact person atau akhiri proses dengan menekan tombol /batal')
+                    return 1
+
+                context.chat_data['nomor'] = nomor
+                await retry_on_error(update.message.reply_text, text='Silahkan masukkan nama contact person.')
+            else:
+                await retry_on_error(update.message.reply_text, text='Panjang nomor telepon yang dimasukkan tidak sesuai. Silahkan masukkan kembali nomor telepon contact person atau akhiri proses dengan menekan tombol /batal')
+                return 1
+        else:
+            await retry_on_error(update.message.reply_text(text='Nomor telepon yang dimasukkan tidak terdiri dari hanya angka (selain pada kode negara pada karakter pertama). Silahkan masukkan kembali nomor telepon contact person atau akhiri proses dengan menekan tombol /batal'))
+            return 1
+    else:
+        await retry_on_error(update.message.reply_text, text='Nomor telepon yang dimasukkan tidak diawali dengan kode negara dengan karakter \'+\'. Silahkan masukkan kembali nomor telepon contact person atau akhiri proses dengan menekan tombol /batal')
+        return 1
     return 2
 
 @authenticate_admin
-async def proses_hapus_user(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
+async def proses_tambah_cp(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
+    nama = update.message.text
+    nomor = context.chat_data.get('nomor')
+    add_cp(nomor, nama)
+    await retry_on_error(update.message.reply_text, text='Berhasil menambahkan contact person berikut.\nNama: {0}\nNomor HP: {1}'.format(nama, nomor))
+    return akhiri_percakapan(context)
+
+# Fungsi untuk cek apakah user dengan user_id tertentu sudah ada di database
+def cp_exists(nomor):
+    query = 'SELECT 1 FROM `contact_persons` WHERE `phone_num` = %s'
+
+    global db_connection
+    with db_connection.cursor() as cursor:
+        cursor.execute(query, (nomor,))
+        result = cursor.fetchone()
+
+    return result is not None
+
+# Fungsi untuk menambahkan user baru ke database
+def add_cp(nama, nomor):
+    query = 'INSERT INTO `contact_persons` (`phone_num`, `nama`) VALUES (%s, %s)'
+
+    global db_connection
+    with db_connection.cursor() as cursor:
+        cursor.execute(query, (nama, nomor))
+
+    db_connection.commit()
+
+### Hapus Contact Person
+# Fungsi untuk memperoleh seluruh nama user
+def peroleh_data_cp():
+    query = 'SELECT `phone_num`, `nama` FROM `contact_persons`'
+
+    global db_connection
+    with db_connection.cursor() as cursor:
+        cursor.execute(query)
+        data_cp = cursor.fetchall()
+
+    return data_cp
+
+# Fungsi untuk menghapus user dari database
+def delete_cp(nomor):
+    query = 'DELETE FROM `contact_persons` WHERE `phone_num` = %s'
+
+    global db_connection
+    with db_connection.cursor() as cursor:
+        cursor.execute(query, (nomor,))
+
+    db_connection.commit()
+
+@authenticate_admin
+@check_conv_status
+async def hapus_cp(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
+    query = update.callback_query
+    await context.bot.edit_message_reply_markup(chat_id=query.message.chat_id, message_id=query.message.message_id, reply_markup=None)
+    context.chat_data['in_conversation'] = True
+
+    cp_list = peroleh_data_cp()
+    if cp_list == None:
+        await retry_on_error(context.bot.send_message, chat_id=query.message.chat_id, text='Belum ada contact person yang terdaftar dalam basis data. Silahkan tambahkan contact person terlebih dahulu. Proses penghapusan contact person diakhiri.')
+        return akhiri_percakapan(context)
+
+    keyboard = [[InlineKeyboardButton('{1} ({0})'.format(cp[0], cp[1]), callback_data = 'hapus_cp_{0}_{1}'.format(cp[0], cp[1]))] for cp in cp_list]
+    await retry_on_error(context.bot.send_message, chat_id=query.message.chat_id, text='Pilih contact person yang mau dihapus, atau keluar dari proses dengan menggunakan fungsi /batal.', reply_markup=InlineKeyboardMarkup(keyboard))
+    return 1
+
+#  Fungsi untuk memproses hapus user
+@authenticate_admin
+async def konfirmasi_hapus_cp(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
+    query = update.callback_query
+
+    # Ambil nama user dari inputan chat yang masuk
+    nomor, nama = query.data[9:].split('_')
+    print(query.data, flush=True)
+    print(query.data[9:].split('_'), flush=True)
+    print(nama, nomor, flush=True)
+
+    await context.bot.edit_message_reply_markup(chat_id=query.message.chat_id, message_id=query.message.message_id, reply_markup=None)
+
+    keyboard = [
+        [InlineKeyboardButton('Ya', callback_data='konfirmasi_hapus_cp_ya')],
+        [InlineKeyboardButton('Tidak', callback_data='konfirmasi_hapus_cp_tidak')],
+    ]
+
+    await retry_on_error(context.bot.send_message, chat_id=query.message.chat_id, text=f'Apakah Anda yakin mau menghapus {nama} ({nomor}) dari daftar contact person?', reply_markup=InlineKeyboardMarkup(keyboard))
+
+    # Simpan nama user ke dalam chat data untuk digunakan saat proses hapus user
+    context.chat_data['nama_cp'] = nama
+    context.chat_data['nomor'] = nomor
+
+    return 2
+
+# Fungsi untuk proses hapus user
+@authenticate_admin
+async def proses_hapus_cp(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
     query = update.callback_query
     button_pressed = query.data
     await context.bot.edit_message_reply_markup(chat_id=query.message.chat_id, message_id=query.message.message_id, reply_markup=None)
 
-    if button_pressed == 'konfirmasi_hapus_ya':
-        if context.chat_data['nama_user'] == 'M. Ivan Wiryawan':
-            reply = 'Tidak bisa menghapuskan user admin terakhir, silahkan tambahkan admin baru terlebih dahulu. Proses penghapusan user dibatalkan.'
+    if button_pressed == 'konfirmasi_hapus_cp_ya':
+        # Ambil nama user dari chat data
+        nomor = context.chat_data.get('nomor')
+        if not nomor:
+            reply = 'Terjadi kesalahan saat memproses penghapusan contact person.'
         else:
-            reply = context.chat_data['nama_user'] + ' berhasil dihapuskan dari daftar user.'
-    elif button_pressed == 'konfirmasi_hapus_tidak':
-        reply = 'Proses penghapusan user dibatalkan.'
+            # Hapus cp dari basis data
+            delete_cp(nomor)
+            text = '{0} ({1}) berhasil dihapus dari daftar contact person.'.format(context.chat_data.get('nama_cp'), nomor)
 
-    await context.bot.send_message(chat_id=query.message.chat_id, text=reply)
+        await retry_on_error(context.bot.send_message, chat_id=query.message.chat_id, text=text)
+    elif button_pressed == 'konfirmasi_hapus_cp_tidak':
+        await retry_on_error(context.bot.send_message, chat_id=query.message.chat_id, text='Contact person tidak dihapuskan. Proses penghapusan contact person dibatalkan.')
+
     return akhiri_percakapan(context)
 
 ### Peroleh Lokasi
@@ -759,7 +913,7 @@ async def peroleh_lokasi(update: Update, context: ContextTypes.DEFAULT_TYPE, aut
             except IndexError:
                 break
 
-    message = await context.bot.send_message(chat_id=query.message.chat_id, text='Silahkan masukkan nama item atau pilih item dari tombol di bawah ini.', reply_markup=InlineKeyboardMarkup(keyboard))
+    message = await retry_on_error(context.bot.send_message, chat_id=query.message.chat_id, text='Silahkan masukkan nama item atau pilih item dari tombol di bawah ini.', reply_markup=InlineKeyboardMarkup(keyboard))
     context.user_data['last_message_id'] = message.message_id
     return 1
 
@@ -776,10 +930,10 @@ async def proses_peroleh_lokasi_text(update: Update, context: ContextTypes.DEFAU
             await kirim_data_item(update, context, [False, False], site)
             return akhiri_percakapan(context)
         except StopIteration:
-            await update.message.reply_text('Site tidak ditemukan. Silahkan masukkan atau pilih kembali nama site atau keluar dari proses dengan menggunakan fungsi /batal.')
+            await retry_on_error(update.message.reply_text, text='Site tidak ditemukan. Silahkan masukkan atau pilih kembali nama site atau keluar dari proses dengan menggunakan fungsi /batal.')
             return 1
 
-    await update.message.reply_text('Format penamaan salah. Silahkan masukkan atau pilih kembali nama site atau keluar dari proses dengan menggunakan fungsi /batal.')
+    await retry_on_error(update.message.reply_text, text='Format penamaan salah. Silahkan masukkan atau pilih kembali nama site atau keluar dari proses dengan menggunakan fungsi /batal.')
     return 1
 
 @authenticate_user
@@ -793,7 +947,7 @@ async def proses_peroleh_lokasi_button(update: Update, context: ContextTypes.DEF
         await kirim_data_item(update, context, [False, False], site)
         return akhiri_percakapan(context)
     except StopIteration:
-        await context.bot.send_message(chat_id=query.message.chat_id, text='Site tidak ditemukan. Silahkan masukkan atau pilih kembali nama site atau keluar dari proses dengan menggunakan fungsi /batal.')
+        await retry_on_error(context.bot.send_message, chat_id=query.message.chat_id, text='Site tidak ditemukan. Silahkan masukkan atau pilih kembali nama site atau keluar dari proses dengan menggunakan fungsi /batal.')
         return 1
 
 # Fungsi untuk memparse koordinat
@@ -820,12 +974,12 @@ async def peroleh_lokasi_func(update: Update, context: ContextTypes.DEFAULT_TYPE
                 await kirim_data_item(update, context, [False, False], site)
 
             else:
-                await update.message.reply_text('Site tidak ditemukan.')
+                await retry_on_error(update.message.reply_text, text='Site tidak ditemukan.')
 
         else:
-            await update.message.reply_text('Format penamaan salah.')
+            await retry_on_error(update.message.reply_text, text='Format penamaan salah.')
     else:
-        await update.message.reply_text('Sintaks: /peroleh_lokasi [nama item]\nContoh: /peroleh_lokasi 20BAT001')
+        await retry_on_error(update.message.reply_text, text='Sintaks: /peroleh_lokasi [nama item]\nContoh: /peroleh_lokasi 20BAT001')
 
 ### Peroleh Nama
 @authenticate_user
@@ -834,7 +988,7 @@ async def peroleh_nama_1(update: Update, context: ContextTypes.DEFAULT_TYPE, aut
     query = update.callback_query
     context.chat_data['in_conversation'] = True
     await context.bot.edit_message_reply_markup(chat_id=query.message.chat_id, message_id=query.message.message_id, reply_markup=None)
-    await context.bot.send_message(chat_id=query.message.chat_id, text='Kirimkan Lokasi Pencarian.')
+    await retry_on_error(context.bot.send_message, chat_id=query.message.chat_id, text='Kirimkan Lokasi Pencarian.')
     return 1
 
 @authenticate_user
@@ -843,7 +997,7 @@ async def peroleh_nama_2(update: Update, context: ContextTypes.DEFAULT_TYPE, aut
     location = update.message.location
     context.chat_data['latitude'] = location.latitude
     context.chat_data['longitude'] = location.longitude
-    await update.message.reply_text('Kirimkan radius pencarian dalam satuan meter.')
+    await retry_on_error(update.message.reply_text, text='Kirimkan radius pencarian dalam satuan meter.')
     return 2
 
 # Fungsi async untuk memproses input pengguna
@@ -854,7 +1008,7 @@ async def proses_peroleh_nama(update: Update, context: ContextTypes.DEFAULT_TYPE
         radius_meter = float(dist.replace(',', '.'))
 
         if radius_meter <= 0:
-            await update.message.reply_text('Nilai radius harus lebih besar dari 0. Silahkan masukkan kembali nilai radius atau keluar dari proses dengan menggunakan fungsi /batal.')
+            await retry_on_error(update.message.reply_text, text='Nilai radius harus lebih besar dari 0. Silahkan masukkan kembali nilai radius atau keluar dari proses dengan menggunakan fungsi /batal.')
             return 2
 
         else:
@@ -870,10 +1024,10 @@ async def proses_peroleh_nama(update: Update, context: ContextTypes.DEFAULT_TYPE
                     await kirim_data_item(update, context, [False, False], site)
                 return akhiri_percakapan(context)
             else:
-                await update.message.reply_text(f'Tidak ada item dalam radius {radius_meter} meter dari lokasi. Silahkan masukkan kembali nilai radius atau keluar dari proses dengan menggunakan fungsi /batal.')
+                await retry_on_error(update.message.reply_text, text=f'Tidak ada item dalam radius {radius_meter} meter dari lokasi. Silahkan masukkan kembali nilai radius atau keluar dari proses dengan menggunakan fungsi /batal.')
                 return 2
 
-    await update.message.reply_text('Radius harus berupa bilangan cacah atau pecahan desimal > 0 dalam satuan meter. Contoh: 1000. Silahkan masukkan kembali nilai radius atau keluar dari proses dengan menggunakan fungsi /batal.')
+    await retry_on_error(update.message.reply_text, text='Radius harus berupa bilangan cacah atau pecahan desimal > 0 dalam satuan meter. Contoh: 1000. Silahkan masukkan kembali nilai radius atau keluar dari proses dengan menggunakan fungsi /batal.')
     return 2
 
 @authenticate_user
@@ -882,7 +1036,7 @@ async def peroleh_berkas(update: Update, context: ContextTypes.DEFAULT_TYPE, aut
     query = update.callback_query
     context.chat_data['in_conversation'] = True
     await context.bot.edit_message_reply_markup(chat_id=query.message.chat_id, message_id=query.message.message_id, reply_markup=None)
-    await context.bot.send_message(chat_id=query.message.chat_id, text='Masukkan nama site.')
+    await retry_on_error(context.bot.send_message, chat_id=query.message.chat_id, text='Masukkan nama site.')
     return 1
 
 @authenticate_user
@@ -892,19 +1046,23 @@ async def proses_peroleh_berkas(update: Update, context: ContextTypes.DEFAULT_TY
 
     if os.path.exists(file_path):
         chat_id = update.effective_chat.id
-        await context.bot.send_document(chat_id=chat_id, document=open(file_path, 'rb'))
+        await retry_on_error(context.bot.send_document, chat_id=chat_id, document=open(file_path, 'rb'))
     else:
-        await update.message.reply_text("Berkas tidak ditemukan. Silahkan masukkan kembali nama berkas atau keluar dari proses dengan menggunakan fungsi /batal.")
+        await retry_on_error(update.message.reply_text, text="Berkas tidak ditemukan. Silahkan masukkan kembali nama berkas atau keluar dari proses dengan menggunakan fungsi /batal.")
         return 1
 
     return akhiri_percakapan(context)
 
 async def batal(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
     if context.chat_data['in_conversation']:
-        await update.message.reply_text('Proses telah dibatalkan.')
-        return akhiri_percakapan(context)
+        try:
+            await retry_on_error(update.message.reply_text, text='Proses telah dibatalkan.')
+        except AttributeError:
+            await retry_on_error(context.bot.send_message, chat_id=query.message.chat_id, text='Proses telah dibatalkan.', reply_markup=InlineKeyboardMarkup(keyboard))
+        finally:
+            return akhiri_percakapan(context)
 
-    await update.message.reply_text('Tidak ada proses yang sedang berjalan.')
+    await retry_on_error(update.message.reply_text, text='Tidak ada proses yang sedang berjalan.')
 
 def akhiri_percakapan(context: ContextTypes.DEFAULT_TYPE):
     context.chat_data['in_conversation'] = False
@@ -924,25 +1082,30 @@ Memulai percakapan. Percakapan tidak dapat dimulai apabila sebuah proses sedang 
 Mengakhiri proses. Mengakhiri proses yang sedang berjalan dan membuka kemungkinan untuk memulai kembali percakapan.
 /bantuan
 Melihat bantuan penggunaan (teks ini).
-/peroleh_token
-Peroleh token untuk keperluan autentikasi. Penjalanan fungsi ini tidak memerlukan autentikasi.
+/peroleh\_token
+Peroleh token untuk keperluan autentikasi.
+/peroleh\_username
+Peroleh username untuk keperluan inisialisasi.
 
 Arahan Menu
 Menu Utama: Berisi berbagai pilihan untuk membuka submenu.
 Input Data: Menjalankan proses untuk memasukkan data ke dalam basis data.
 Peroleh Lokasi Item: Menjalankan proses untuk memperoleh lokasi item berdasarkan nama item.
 Peroleh Nama Item: Menjalankan proses untuk memperoleh nama-nama item berdasarkan lokasi.
-Peroleh File Site: Menjalankan proses untuk memperoleh berkas-berkas berdasarkan nama.
-
-Apabila memerlukan bantuan tambahan, anda dapat menghubungi helpdesk pada...'''
+Peroleh File Site: Menjalankan proses untuk memperoleh berkas-berkas berdasarkan nama.'''
+    cp_list = peroleh_cp()
+    if cp_list:
+        text += '\n\nApabila memerlukan bantuan tambahan, anda dapat menghubungi helpdesk pada kontak berikut:\n'
+        text += '\n'.join(['{0}: [{1}](https://t.me/{1})'.format(cp[0], cp[1]) for cp in peroleh_cp()])
 
     try:
-        await context.bot.send_message(chat_id=query.message.chat_id, text=text)
-    except Exception:
-        await update.message.reply_text(f'Token anda adalah: {token}')
+        await retry_on_error(context.bot.send_message, chat_id=query.message.chat_id, text=text, parse_mode=ParseMode.MARKDOWN)
+    except Exception as e:
+        print(type(e), e, flush = True)
+        await retry_on_error(update.message.reply_text, text=text, parse_mode=ParseMode.MARKDOWN)
 
 async def peroleh_token(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
-    await update.message.reply_text(f'Mohon kirimkan nama lengkap anda.')
+    await retry_on_error(update.message.reply_text, text=f'Mohon kirimkan nama lengkap anda.')
     return 1
 
 async def peroleh_token_process(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
@@ -962,32 +1125,59 @@ async def peroleh_token_process(update: Update, context: ContextTypes.DEFAULT_TY
         algorithm = 'HS512',
         headers = {'user_id': userid}
     )
-    await update.message.reply_text(f'Token anda adalah: {token}')
+    await retry_on_error(update.message.reply_text, text=f'Token anda adalah: {token}')
     return akhiri_percakapan(context)
 
 async def peroleh_username(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status=[False, False]):
-    await update.message.reply_text(f'Username anda adalah: {str(update.message.from_user.id)}')
+    await retry_on_error(update.message.reply_text, text=f'Username anda adalah: {str(update.message.from_user.id)}')
 
 @authenticate_user
 async def kirim_data_item(update: Update, context: ContextTypes.DEFAULT_TYPE, auth_status, data):
     text = 'Site\_ID\_Tenant: {}\n'.format(data[0])
     text += 'Tenant: {}\n'.format(data[1])
-    text += 'Alamat: {}\n'.format(data[2].replace('_', '').replace('*', '').replace('#', ''))
+    text += 'Alamat: {}\n'.format(data[2]).translate(str.maketrans({'\\': '\\\\',
+                                                                    '#': r'\#',
+                                                                    '*': r'\*',
+                                                                    '_': r'\_',
+                                                                    '{': r'\{',
+                                                                    '}': r'\}',
+                                                                    '(': r'\(',
+                                                                    ')': r'\)',
+                                                                    '<': r'\<',
+                                                                    '>': r'\>',
+                                                                    '[': r'\[',
+                                                                    ']': r'\]',
+                                                                    '|': r'\|',
+                                                                    '`': r'\`',
+                                                                    '!': r'\!',
+                                                                    ':': r'\:',
+                                                                    '=': r'\=',
+                                                                    '~': r'\~',
+                                                                    '^': r'\^'}))
     text += 'Koordinat Site: [{0},{1}](http://maps.google.com/maps?q={0},{1})\n'.format(data[3], data[4])
     query = update.callback_query
 
     if query:
-        await context.bot.send_message(chat_id=query.message.chat_id, text=text, parse_mode=ParseMode.MARKDOWN)
+        await retry_on_error(context.bot.send_message, chat_id=query.message.chat_id, text=text, parse_mode=ParseMode.MARKDOWN)
         try:
-            await context.bot.send_location(chat_id=query.message.chat_id, latitude=data[3], longitude=data[4])
+            await retry_on_error(context.bot.send_location, chat_id=query.message.chat_id, latitude=data[3], longitude=data[4])
         except Exception as e:
             print(e, flush = True)
     else:
-        await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
+        await retry_on_error(update.message.reply_text, text=text, parse_mode=ParseMode.MARKDOWN)
         try:
-            await context.bot.send_location(chat_id=query.message.chat_id, latitude=data[3], longitude=data[4])
+            await retry_on_error(context.bot.send_location, chat_id=query.message.chat_id, latitude=data[3], longitude=data[4])
         except Exception as e:
             print(e, flush = True)
+
+def peroleh_cp():
+    query = 'SELECT `nama`, `phone_num` FROM `contact_persons`'
+
+    global db_connection
+    with db_connection.cursor() as cursor:
+        cursor.execute(query)
+        contacts = cursor.fetchall()
+    return contacts
 
 ##### MAIN
 if __name__ == '__main__':

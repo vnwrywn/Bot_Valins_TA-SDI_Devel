@@ -60,8 +60,9 @@ docker_create_db_directories "$@"
 #     # Run mysql docker container's original entrypoint
 #     /usr/local/bin/docker-entrypoint.sh --bind-address=0.0.0.0 --default-authentication-plugin=mysql_native_password
 
-STR=$(cat /init_status.txt)
-if [[ "$STR" == 'Basis data belum terinisialisasi.' ]]; then
+INIT_STATUS=$(cat /init_status.txt)
+echo $INIT_STATUS
+if [ -z "$DATABASE_ALREADY_EXISTS" ]; then
     # there's no database, so it needs to be initialized
     docker_verify_minimum_env
 
@@ -108,7 +109,7 @@ if [[ "$STR" == 'Basis data belum terinisialisasi.' ]]; then
     mysql_note "MySQL init process done. Ready for start up."
     echo
 
-elif [[ "$STR" == 'Basis data sudah terinisialisasi.' ]] && test -n "$(shopt -s nullglob; echo /always-initdb.d/*)"; then
+elif test -n "$(shopt -s nullglob; echo /always-initdb.d/*)"; then
     # Replace variables in the sql initialization script
     /replace.sh /tmp/change_telebot_pass.sql /always-initdb.d/init.sql
 

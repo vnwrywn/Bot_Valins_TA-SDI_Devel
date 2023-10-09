@@ -11,7 +11,8 @@ docker-compose -f docker-compose.yml down -v || {
     exit 0
 }
 
-if [[ -n "$INITIALIZE" ]]; then
+INIT_STATUS=$(cat init_status.txt)
+if [[ -n "$INITIALIZE" ]] || [[ "$INIT_STATUS" == 'Basis data belum terinisialisasi.' ]]; then
     docker volume rm mysql_data
     docker volume create mysql_data
     echo Basis data belum terinisialisasi. > init_status.txt

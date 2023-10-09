@@ -2,7 +2,7 @@ version: '3'
 
 services:
   mysql_server:
-    image: mysql:latest
+    image: mysql:8.1.0-oracle
     container_name: mysql_server
     networks:
       - bot_telegram_devel
