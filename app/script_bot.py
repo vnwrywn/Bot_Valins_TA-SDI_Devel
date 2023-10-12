@@ -66,7 +66,7 @@ def main():
     telebot_passwd = generate_password()
 
     with open(r'/init_status.txt', 'r') as file:
-        init_status = file.read()[:-1]
+        init_status = file.read().rstrip()
 
     if init_status == 'Basis data belum terinisialisasi.':
         filename = r'/docker-entrypoint-initdb.d/init.sql'
