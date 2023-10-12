@@ -1,3 +1,5 @@
+ALTER USER `root`@`%` IDENTIFIED WITH mysql_native_password BY "__MYSQL_ROOT_PASSWORD__";
+
 CREATE USER `__TELEBOT_USER__`@`%` IDENTIFIED WITH mysql_native_password BY "__TELEBOT_PASSWORD__";
 USE __MYSQL_DATABASE__;
 

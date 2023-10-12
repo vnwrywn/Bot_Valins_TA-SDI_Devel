@@ -10,8 +10,8 @@ services:
       MYSQL_DATABASE: TeleBotDevelDB
       MYSQL_RANDOM_ROOT_PASSWORD: 1
       TELEBOT_USER: TeleBotDevel
-      NAMA_USER: Muhammad Ivan Wiryawan
-      USERNAME: 1139987918
+      NAMA_USER: Tamara
+      USERNAME: 6119375027
     ports:
       - "3307:3306"
     volumes:

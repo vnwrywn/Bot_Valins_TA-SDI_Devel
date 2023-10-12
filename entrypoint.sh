@@ -63,11 +63,9 @@ docker_create_db_directories "$@"
 INIT_STATUS=$(cat /init_status.txt)
 echo $INIT_STATUS
 if [ -z "$DATABASE_ALREADY_EXISTS" ]; then
+    cp /tmp/init.sql /docker-entrypoint-initdb.d/init.sql
     # there's no database, so it needs to be initialized
     docker_verify_minimum_env
-
-    # Replace variables in the sql initialization script
-    /replace.sh /tmp/init.sql /docker-entrypoint-initdb.d/init.sql
 
     # Wait until the password for the telebot user is added into the initialization script
     STR=`cat /docker-entrypoint-initdb.d/init.sql | grep 'CREATE USER'`
@@ -92,6 +90,10 @@ if [ -z "$DATABASE_ALREADY_EXISTS" ]; then
     mysql_note "Temporary server started."
 
     docker_setup_db
+
+    # Replace variables in the sql initialization script
+    /replace.sh /docker-entrypoint-initdb.d/init.sql /docker-entrypoint-initdb.d/init.sql
+
     docker_process_init_files /docker-entrypoint-initdb.d/*
 
     mysql_expire_root_user
@@ -101,7 +103,6 @@ if [ -z "$DATABASE_ALREADY_EXISTS" ]; then
     mysql_note "Temporary server stopped"
 
     echo Basis data sudah terinisialisasi. > init_status.txt
-    echo > /docker-entrypoint-initdb.d/*
     printf '[client]\n' > /root/.my.cnf
     echo password = $MYSQL_ROOT_PASSWORD >> /root/.my.cnf
     chmod 600 /root/.my.cnf
@@ -143,5 +144,4 @@ elif test -n "$(shopt -s nullglob; echo /always-initdb.d/*)"; then
     echo
 fi
 
-exec "$@" --bind-address=0.0.0.0 --default-authentication-plugin=mysql_native_password
-
+exec "$@" --bind-address=0.0.0.0

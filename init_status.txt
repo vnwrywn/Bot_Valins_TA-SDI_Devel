@@ -1,1 +1,1 @@
-Basis data belum terinisialisasi.
+Basis data sudah terinisialisasi.

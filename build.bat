@@ -11,8 +11,8 @@ if %1%==ni (
     set NOCACHE=1
 )
 
-if %1%==n set INITIALIZE=1
-if %1%==i set NOCACHE=1
+if %1%==i set INITIALIZE=1
+if %1%==n set NOCACHE=1
 
 
 if %INITIALIZE%==1 (

@@ -653,7 +653,7 @@ def delete_user(username):
 
     global db_connection
     with db_connection.cursor() as cursor:
-        cursor.execute(delete_query, (user_id,))
+        cursor.execute(delete_query, (username,))
 
     db_connection.commit()
 
@@ -697,7 +697,7 @@ async def konfirmasi_hapus_user(update: Update, context: ContextTypes.DEFAULT_TY
     query = update.callback_query
 
     # Ambil nama user dari inputan chat yang masuk
-    username, nama_user = query.data[11:].split('_')
+    username, nama_user = query.data.split('_')[2:]
 
     if is_last_admin(username):
         await retry_on_error(context.bot.send_message, chat_id=query.message.chat_id, text='Tidak bisa menghapus user admin terakhir. Anda dapat menambahkan admin baru terlebih dahulu dan mencoba kembali menghapus user ini. Silahkan pilih kembali user yang mau dihapuskan atau akhiri proses penghapusan user dengan menjalankan perintah /batal.')
@@ -708,7 +708,7 @@ async def konfirmasi_hapus_user(update: Update, context: ContextTypes.DEFAULT_TY
             [InlineKeyboardButton('Ya', callback_data='konfirmasi_hapus_user_ya')],
             [InlineKeyboardButton('Tidak', callback_data='konfirmasi_hapus_user_tidak')],
         ]
-        await retry_on_error(context.bot.send_message, chat_id=query.message.chat_id, text=f'Apakah Anda yakin mau menghapus {nama_user} dari daftar user??', reply_markup=InlineKeyboardMarkup(keyboard))
+        await retry_on_error(context.bot.send_message, chat_id=query.message.chat_id, text=f'Apakah Anda yakin mau menghapus {nama_user} dari daftar user?', reply_markup=InlineKeyboardMarkup(keyboard))
 
         # Simpan nama user ke dalam chat data untuk digunakan saat proses hapus user
         context.chat_data['nama_user'] = nama_user
@@ -848,7 +848,7 @@ async def konfirmasi_hapus_cp(update: Update, context: ContextTypes.DEFAULT_TYPE
     query = update.callback_query
 
     # Ambil nama user dari inputan chat yang masuk
-    nomor, nama = query.data[9:].split('_')
+    nomor, nama = query.data.split('_')[2:]
     print(query.data, flush=True)
     print(query.data[9:].split('_'), flush=True)
     print(nama, nomor, flush=True)
@@ -1166,7 +1166,7 @@ async def kirim_data_item(update: Update, context: ContextTypes.DEFAULT_TYPE, au
     else:
         await retry_on_error(update.message.reply_text, text=text, parse_mode=ParseMode.MARKDOWN)
         try:
-            await retry_on_error(context.bot.send_location, chat_id=query.message.chat_id, latitude=data[3], longitude=data[4])
+            await retry_on_error(context.bot.send_location, chat_id=update.effective_chat.id, latitude=data[3], longitude=data[4])
         except Exception as e:
             print(e, flush = True)
 
