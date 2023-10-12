@@ -14,9 +14,9 @@ if %1%==ni (
 if %1%==n set INITIALIZE=1
 if %1%==i set NOCACHE=1
 
-docker-compose -f docker-compose.yml down -v
 
 if %INITIALIZE%==1 (
+    docker-compose -f docker-compose.yml down -v
     docker volume rm mysql_data
     docker volume create mysql_data
     Echo Basis data belum terinisialisasi. > init_status.txt

@@ -197,8 +197,8 @@ def main():
 
     while True:
         try:
-    print('Polling...', flush = True)
-    app.run_polling(poll_interval=4)
+            print('Polling...', flush = True)
+            app.run_polling(poll_interval=4)
         except telegram.error.TimedOut as e:
             print(e, flush = True)
             app.stop_running()
